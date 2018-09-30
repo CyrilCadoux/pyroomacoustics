@@ -7,8 +7,138 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import pyroomacoustics as pra
+import math
 
-# ==================== FUNCTIONS ====================
+
+PI = 3.141592653589793
+
+# ==================== 2D FUNCTIONS ====================
+
+
+def norm(v):
+    """
+    Computes the norm of a vector
+    :param v: a 2 dim array representing a vector
+    :return: a positive scalar : the norm of v
+    """
+    return math.sqrt(v[0]*v[0]+v[1]*v[1])
+
+
+def normalize(vector):
+    """
+    Returns the unit vector of the vector.
+    :param vector: an 2 dim array representing a vector
+    :return: the same vector but with a magnitude of 1
+    """
+    return vector[0]/ norm(vector), vector[1]/ norm(vector)
+
+
+def dist(p1, p2):
+    """
+    Returns the euclidean distance between p1 and p2
+    :param p1: a 2 dim array representing the first point
+    :param p2: a 2 dim array representing the second point
+    :return: a double, the euclidean distance between p1 and p2
+    """
+    return math.sqrt((p1[0]-p2[0])*(p1[0]-p2[0]) + (p1[1]-p2[1])*(p1[1]-p2[1]))
+
+
+def dot(v1, v2):
+    """
+    Computes the dot product of 2 2-dim array
+    :param v1: a 2 dim array representing a vector
+    :param v2: a 2 dim array representing a vector
+    :return: a scalar representing the dot product v1.v2
+    """
+    return v1[0]*v2[0] + v1[1]*v2[1]
+
+
+def make_vector(start_point, end_point):
+    """
+    Computes the vector going from the starting point to the end point
+    :param start_point: a 2 dim array respresenting the start
+    :param end_point: a 2 dim array representing the destination
+    :return: a 2 dim array representing a vector going from start to end
+    """
+    return end_point[0]-start_point[0], end_point[1]-start_point[1]
+
+
+def reverse_vector(v):
+    """
+    Computes the vector going in the opposite direction than v
+    :param v: a 2 dim array representing a vector to be reversed
+    :return: a 2 dim array representing a vector going in the opposite direction than v
+    """
+    return -v[0], -v[1]
+
+def clip(value, down, up):
+    """
+    Clips the value in parameter to the value down or up
+    :param value: a scalar, the value to clip
+    :param down: a scalar, the minimum value to be accepted
+    :param up: a scalar, the maximum value to be accepted
+    :return: a scalar :     - value if value is in [down, up]
+                            - down if value < down
+                            - up if value > up
+    """
+    if value < down : return down
+    if value > up : return up
+    return value
+
+
+
+
+def equation(p1, p2):
+    """
+    Computes 'a' and 'b' coefficients in the expression y = a*x +b for the line defined by the two points in argument
+    :param p1: a 2 dim array representing a first point on the line
+    :param p2: a 2 dim array representing an other point on the line
+    :return: the coefficients 'a' and 'b' that fully describe the line algebraically
+    """
+
+    a = (p2[1]-p1[1])/(p2[0]-p1[0])
+
+    return a, p1[1] - a*p1[0]
+
+
+
+
+
+def get_quadrant(vec):
+    """
+    Outputs the quadrant that the vector in parameter belongs to
+    :param vec: a 2D vector
+    :return: an integer:
+                - 1 if the vector (starting from (0,0)) belongs to the first quadrant ([0, pi/2])
+                - 2 if the vector (starting from (0,0)) belongs to the second quadrant ([pi/2, pi])
+                - 3 if the vector (starting from (0,0)) belongs to the third quadrant ([pi, 3pi/2])
+                - 4 if the vector (starting from (0,0)) belongs to the last quadrant ([3pi/2, 2pi])
+    """
+
+    if vec[0] >= 0:
+        if vec[1] >= 0:
+            return 1
+        return 4
+
+    if vec[1] >= 0:
+        return 2
+    return 3
+
+
+def angle_between(v1, v2):
+    """
+    Returns the angle in radians between vectors 'v1' and 'v2'
+
+    :param v1: an N dim array representing the first vector
+    :param v2: an N dim array representing the first vector
+    :return: the angle formed by the two vectors. WARNING : the angle is not signed, hence it belongs to [0,pi]
+    """
+    v1_u = normalize(v1)
+    v2_u = normalize(v2)
+    return math.acos(clip(dot(v1_u, v2_u), -1.0, 1.0))
+
+
+# ==================== ALGO FUNCTIONS ====================
 
 
 def get_max_distance(room):
@@ -40,7 +170,7 @@ def get_max_distance(room):
         smallest_xy = np.array([np.ndarray.min(w.corners, 1) for w in room.walls])
         return np.ndarray.min(smallest_xy, 0)
 
-    return scipy.spatial.distance.euclidean(get_extreme_xy(room, False), get_extreme_xy(room)) + 1
+    return dist(get_extreme_xy(room, False), get_extreme_xy(room)) + 1
 
 
 def compute_segment_end(start, length, alpha):
@@ -62,10 +192,10 @@ def same_wall(w1, w2):
     :return: True if they are the same, False otherwise
     """
 
-    c1 = np.array(w1.corners)
-    c2 = np.array(w2.corners)
+    c1 = w1.corners
+    c2 = w2.corners
 
-    return np.sum(np.sum(np.abs(c1-c2))) == 0
+    return c1[0][0] == c2[0][0] and c1[1][0] == c2[1][0] and c1[0][1] == c2[0][1] and c1[1][1] == c2[1][1]
 
 
 def next_wall_hit(start, end, room, previous_wall):
@@ -104,76 +234,15 @@ def next_wall_hit(start, end, room, previous_wall):
     # If only 1 wall is intersected
     if len(intersected_walls) == 1:
         hitting_point = intersected_walls[0].intersection(start, end)[0]
-        return hitting_point, scipy.spatial.distance.euclidean(hitting_point, start), intersected_walls[0]
+        return hitting_point, dist(hitting_point, start), intersected_walls[0]
 
-    # If one reaches this points, it means that several walls have been intersected (non shoebox room)
+    # If we are here it means that several walls have been intersected (non shoebox room)
     intersection_points = [w.intersection(start, end)[0] for w in intersected_walls]
-    dist_from_start = np.array([scipy.spatial.distance.euclidean(start, p) for p in intersection_points])
+    dist_from_start = [dist(start, p) for p in intersection_points]
 
     # Returns the closest point to 'start', ie. the one corresponding to the correct wall
     correct_wall = np.argmin(dist_from_start)
     return intersection_points[correct_wall], dist_from_start[correct_wall], intersected_walls[correct_wall]
-
-
-def get_quadrant(vec):
-    """
-    Outputs the quadrant that the vector in parameter belongs to
-    :param vec: a 2D vector
-    :return: an integer:
-                - 1 if the vector (starting from (0,0)) belongs to the first quadrant ([0, pi/2])
-                - 2 if the vector (starting from (0,0)) belongs to the second quadrant ([pi/2, pi])
-                - 3 if the vector (starting from (0,0)) belongs to the third quadrant ([pi, 3pi/2])
-                - 4 if the vector (starting from (0,0)) belongs to the last quadrant ([3pi/2, 2pi])
-    """
-
-    if vec[0] >= 0:
-        if vec[1] >= 0:
-            return 1
-        return 4
-
-    if vec[1] >= 0:
-        return 2
-    return 3
-
-
-def equivalent(rad_angle):
-    """
-    Returns the equivalent value of the angle in the range [-pi;pi]
-    :param rad_angle: an angle in radians
-    :return: An equivalent radian value in [-pi;pi]
-    """
-
-    pi = np.pi
-
-    while rad_angle > pi:
-        rad_angle -= 2 * pi
-
-    while rad_angle < -pi:
-        rad_angle += 2 * pi
-
-    return rad_angle
-
-
-def normalize(vector):
-    """
-    Returns the unit vector of the vector.
-    :param vector: an N dim array representing a vector
-    :return: the same vector but with a magnitude of 1
-    """
-    return vector / np.linalg.norm(vector)
-
-
-def angle_between(v1, v2):
-    """
-    Returns the angle in radians between vectors 'v1' and 'v2'
-
-    :param v1: an N dim array representing the first vector
-    :param v2: an N dim array representing the first vector
-    :return: the angle formed by the two vectors. WARNING : the angle is not signed, hence it belongs to [0,pi]
-    """
-    v1_u = normalize(v1)
-    v2_u = normalize(v2)
-    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 
 def compute_new_angle(start, hit_point, wall_normal, alpha):
@@ -188,10 +257,10 @@ def compute_new_angle(start, hit_point, wall_normal, alpha):
     """
 
     # The reference vector to compute the angles
-    ref_vec = np.array([1, 0])
+    ref_vec = [1, 0]
 
     # The incident vector
-    incident = np.array(hit_point)-np.array(start)
+    incident = make_vector(start, hit_point)
 
     # We get the quadrant of both vectors
     qi = get_quadrant(incident)
@@ -213,58 +282,45 @@ def compute_new_angle(start, hit_point, wall_normal, alpha):
     '''
 
     # When normal is vertical, ie the wall is horizontal
-    if np.dot(np.array([1, 0]), wall_normal) == 0:
-        return equivalent(-alpha)
+    if dot([1, 0], wall_normal) == 0:
+        return -alpha
 
     # When normal is horizontal, ie the wall is vertical
-    if np.dot(np.array([0, 1]), wall_normal) == 0:
+    if dot([0, 1], wall_normal) == 0:
 
-        return equivalent(np.pi-alpha)
+        return PI-alpha
 
     # We use this reverse version to see if the normal points 'inside' of 'outside' the room
-    reversed_incident = (-1)*incident
+    reversed_incident = reverse_vector(incident)
 
-    if angle_between(reversed_incident, wall_normal) > np.pi/2:
-        wall_normal = (-1) * wall_normal
+    if angle_between(reversed_incident, wall_normal) > PI/2:
+        wall_normal = reverse_vector(wall_normal)
         qn = get_quadrant(wall_normal)
 
     # Here we must be careful since angle_between() only yields positive angles
     beta = angle_between(reversed_incident, wall_normal)
     n_alpha = angle_between(ref_vec, wall_normal)
 
-    if qi == 1 and qn == 2: result = equivalent(n_alpha - beta)
-    elif qi == 1 and qn == 3: result = equivalent(-n_alpha + beta)
-    elif qi == 1 and qn == 4: result = equivalent(-n_alpha + beta)
+    if qi == 1 and qn == 2: result = n_alpha - beta
+    elif qi == 1 and qn == 3: result = -n_alpha + beta
+    elif qi == 1 and qn == 4: result = -n_alpha + beta
 
-    elif qi == 2 and qn == 1: result = equivalent(n_alpha + beta)
-    elif qi == 2 and qn == 3: result = equivalent(-n_alpha - beta)
-    elif qi == 2 and qn == 4: result = equivalent(-n_alpha - beta)
+    elif qi == 2 and qn == 1: result = n_alpha + beta
+    elif qi == 2 and qn == 3: result = -n_alpha - beta
+    elif qi == 2 and qn == 4: result = -n_alpha - beta
 
-    elif qi == 3 and qn == 1: result = equivalent(n_alpha + beta)
-    elif qi == 3 and qn == 2: result = equivalent(n_alpha + beta)
-    elif qi == 3 and qn == 4: result = equivalent(-n_alpha - beta)
+    elif qi == 3 and qn == 1: result = n_alpha + beta
+    elif qi == 3 and qn == 2: result = n_alpha + beta
+    elif qi == 3 and qn == 4: result = -n_alpha - beta
 
-    elif qi == 4 and qn == 1: result = equivalent(n_alpha - beta)
-    elif qi == 4 and qn == 2: result = equivalent(n_alpha - beta)
-    else: result = equivalent(-n_alpha + beta)
+    elif qi == 4 and qn == 1: result = n_alpha - beta
+    elif qi == 4 and qn == 2: result = n_alpha - beta
+    else: result = -n_alpha + beta
 
     return result
 
 
-# ----- Functions for interactions with the circular receiver
-
-
-def equation(p1, p2):
-    """
-    Computes 'a' and 'b' coefficients in the expression y = a*x +b for the line defined by the two points in argument
-    :param p1: a 2 dim array representing a first point on the line
-    :param p2: a 2 dim array representing an other point on the line
-    :return: the coefficients 'a' and 'b' that fully describe the line algebraically
-    """
-    coefficients = [[p1[0], 1], [p2[0], 1]]
-    ys = [p1[1], p2[1]]
-
-    return np.linalg.solve(coefficients, ys)
+# ==================== MICROPHONE FUNCTIONS ====================
 
 
 def dist_line_point(start, end, point):
@@ -281,7 +337,7 @@ def dist_line_point(start, end, point):
 
     a, b = equation(start, end)
 
-    return abs(point[1] - a * point[0] - b) / np.sqrt(a * a + 1)
+    return abs(point[1] - a*point[0] - b) / math.sqrt(a*a + 1)
 
 
 def intersects_circle(start, end, center, radius):
@@ -297,12 +353,14 @@ def intersects_circle(start, end, center, radius):
     start_end_vect = end - start
     start_center_vect = center - start
 
-    end_start_vect = (-1)*start_end_vect
+    end_start_vect = reverse_vector(start_end_vect)
     end_center_vect = center - end
 
+    # Boolean
     intersection = dist_line_point(start, end, center) <= radius
 
-    in_the_room = angle_between(start_end_vect, start_center_vect) < np.pi/2 and angle_between(end_start_vect, end_center_vect) < np.pi/2
+    in_the_room = angle_between(start_end_vect, start_center_vect) < PI/2 \
+                  and angle_between(end_start_vect, end_center_vect) < PI/2
 
     return intersection and in_the_room
 
@@ -334,7 +392,7 @@ def closest_intersection(start, end, center, radius):
 
         delta = B * B - 4 * A * C
         if delta >= 0:
-            return (-B + np.sqrt(delta)) / (2 * A), (-B - np.sqrt(delta)) / (2 * A)
+            return (-B + math.sqrt(delta)) / (2 * A), (-B - math.sqrt(delta)) / (2 * A)
 
         raise ValueError("The roots are imaginary, something must be wrong")
 
@@ -362,13 +420,13 @@ def closest_intersection(start, end, center, radius):
         y1 = m * x1 + c
         y2 = m * x2 + c
 
-    d1 = scipy.spatial.distance.euclidean([x1, y1], start)
-    d2 = scipy.spatial.distance.euclidean([x2, y2], start)
+    d1 = dist([x1, y1], start)
+    d2 = dist([x2, y2], start)
 
     return [[x1, y1], d1] if d1 <= d2 else [[x2, y2], d2]
 
 
-# ----- Functions for time & energy
+# ==================== TIME ENERGY FUNCTIONS ====================
 
 
 def update_travel_time(previous_travel_time, current_hop_length, speed):
@@ -391,7 +449,7 @@ def wall_absorption(previous_energy, wall):
     return previous_energy * (1 - wall.absorption)
 
 
-# ----- Drawing functions
+# ==================== DRAWING FUNCTIONS ====================
 
 
 def draw_point(pos,  marker='o', markersize=10, color="red" ):
@@ -408,6 +466,9 @@ def draw_point(pos,  marker='o', markersize=10, color="red" ):
 
 def draw_segment(source, hit):
     plt.plot([source[0], hit[0]], [source[1], hit[1]], 'ro-')
+
+
+# ==================== SIMULATION ====================
 
 
 def simul_ray(room,
@@ -455,6 +516,7 @@ def simul_ray(room,
     end = None
     wall = None
     travel_time = 0
+
 
     while True:
 
@@ -507,7 +569,10 @@ def simul_ray(room,
 
 # ==================== ROOM SETUP ====================
 
+
 # Add the circular microphone
+
+
 mic_pos = np.array([5.5, 2.])
 mic_radius = 0.15
 
@@ -523,22 +588,40 @@ room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.1)
 room.add_source([1.5, 1.2])
 
 
-# ==================== RAY TRACING ====================
+# ==================== MAIN ====================
 
 
 RAY_SEGMENT_LENGTH = get_max_distance(room)
 
 
 energy = 100
-angle = range(1, 11)
-log = [None]*len(angle)
-room.plot(img_order=1)
+angle = range(1,301)
+log = []
+
+
+plot = False
+
+if plot:
+    room.plot(img_order=1)
+
+print("Set up done. Starting Ray Tracing")
+start_time = time.process_time()
 
 for index, a in enumerate(angle):
-    start_time = time.process_time()
-    log[index] = simul_ray(room, RAY_SEGMENT_LENGTH, room.sources[0].position, a, energy, mic_pos, mic_radius,plot=True)
-    print("running time for angle", a, ":", time.process_time() - start_time)
+    result = simul_ray(room, RAY_SEGMENT_LENGTH, room.sources[0].position, a, energy, mic_pos, mic_radius, plot=plot)
 
+    if result[0]:
+        log = log + result
 
-plt.show()
+print("running time for", len(angle), "rays:", time.process_time() - start_time)
 
+if plot:
+    plt.show()
+
+# start_time = time.process_time()
+# np.pi
+# print(time.process_time()-start_time)
+#
+# start_time = time.process_time()
+# PI
+# print(time.process_time()-start_time)
