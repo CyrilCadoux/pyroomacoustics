@@ -8,29 +8,6 @@ import matplotlib.pyplot as plt
 import time
 import pyroomacoustics as pra
 
-
-
-# ==================== ROOM SETUP ====================
-room_ll = [-1, -1]
-room_ur = [1, 1]
-src_pos = [0, 0]
-
-# Add the circular microphone
-mic_pos = np.array([5.5, 2.])
-mic_radius = 0.3
-
-max_order = 10
-
-# Store the corners of the room floor in an array
-pol = 3 * np.array([[0, 0], [0, 0.75], [2, 1], [2, 0.5], [1, 0.5], [1, 0]]).T
-
-# Create the room from its corners
-room = pra.Room.from_corners(pol, fs=16000, max_order=max_order, absorption=0.1)
-
-# Add a source somewhere in the room
-room.add_source([1.5, 1.2])
-
-
 # ==================== FUNCTIONS ====================
 
 
@@ -159,22 +136,22 @@ def get_quadrant(vec):
     return 3
 
 
-def equivalent(angle):
+def equivalent(rad_angle):
     """
     Returns the equivalent value of the angle in the range [-pi;pi]
-    :param angle: an angle in radians
-    :return: An equivalent value in [-pi;pi]
+    :param rad_angle: an angle in radians
+    :return: An equivalent radian value in [-pi;pi]
     """
 
     pi = np.pi
 
-    while angle > pi:
-        angle -= 2*pi
+    while rad_angle > pi:
+        rad_angle -= 2 * pi
 
-    while angle < -pi:
-        angle += 2*pi
+    while rad_angle < -pi:
+        rad_angle += 2 * pi
 
-    return angle
+    return rad_angle
 
 
 def normalize(vector):
@@ -212,6 +189,8 @@ def compute_new_angle(start, hit_point, wall_normal, alpha):
 
     # The reference vector to compute the angles
     ref_vec = np.array([1, 0])
+
+    # The incident vector
     incident = np.array(hit_point)-np.array(start)
 
     # We get the quadrant of both vectors
@@ -226,7 +205,8 @@ def compute_new_angle(start, hit_point, wall_normal, alpha):
         (1) If the normal is vertical, the wall is horizontal and thus we return -alpha
         (2) If the normal is horizontal, the wall is vertical and thus we return pi-alpha
     
-    Otherwise, here are the cases where we should work with the inverted version of the wall_normal, since the given normal points to the 'wrong' side of the wall :
+    Otherwise, here are the cases where we should work with the inverted version of the wall_normal,
+    since the given normal points to the 'wrong' side of the wall :
         (1) the angle between the reverse incident ray and the normal should be less than pi/2
     
     =================
@@ -242,7 +222,7 @@ def compute_new_angle(start, hit_point, wall_normal, alpha):
         return equivalent(np.pi-alpha)
 
     # We use this reverse version to see if the normal points 'inside' of 'outside' the room
-    reversed_incident= (-1)*incident
+    reversed_incident = (-1)*incident
 
     if angle_between(reversed_incident, wall_normal) > np.pi/2:
         wall_normal = (-1) * wall_normal
@@ -269,6 +249,7 @@ def compute_new_angle(start, hit_point, wall_normal, alpha):
     else: result = equivalent(-n_alpha + beta)
 
     return result
+
 
 # ----- Functions for interactions with the circular receiver
 
@@ -387,60 +368,177 @@ def closest_intersection(start, end, center, radius):
     return [[x1, y1], d1] if d1 <= d2 else [[x2, y2], d2]
 
 
-# ==================== RAY TRACING ====================
-
-# Constants
-RAY_SEGMENT_LENGTH = get_max_distance(room)
-SOUND_SPEED = 340.  # m/s
-
-# Experiment Setup
-angle = -0.01  # The angle (rad) of the ray with respect to the vector [x = 1, y=0] (ie horizontal, pointing to the right)
-start = room.sources[0].position
-end = None
-wall = None
-
-room.plot(img_order=6)
+# ----- Functions for time & energy
 
 
-for a in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]:
+def update_travel_time(previous_travel_time, current_hop_length, speed):
+    """
+    Computes the total travel time of the ray knowing the travel time to reach the previous hit_point, the new distance
+    to travel, and the speed of the ray
+    :param previous_travel_time: the total travel time from the source to the previous hit_point (seconds)
+    :param current_hop_length: the distance between previous hit_point and next hit_point (meters)
+    :param speed: the sound speed (may depend on several factors) (meters/seconds)
+    :return: the total travel time from the source to next hit_point (seconds)
+    """
+    return previous_travel_time + current_hop_length / speed
 
-    start = room.sources[0].position
-    angle = a
+
+def air_absorption(previous_energy, distance_to_travel, coef):
+    return previous_energy - coef*distance_to_travel
+
+
+def wall_absorption(previous_energy, wall):
+    return previous_energy * (1 - wall.absorption)
+
+
+# ----- Drawing functions
+
+
+def draw_point(pos,  marker='o', markersize=10, color="red" ):
+    """
+    Draw a point on a plot at position pos
+    :param pos: a 2 dim array representing the position of the point
+    :param marker: a char representing the shape of the marker to use
+    :param markersize: an int representing the size of the marker
+    :param color: a string representing the color of the marker
+    :return: Nothing
+    """
+    plt.plot([pos[0]], [pos[1]], marker=marker, markersize=markersize, color=color)
+
+
+def draw_segment(source, hit):
+    plt.plot([source[0], hit[0]], [source[1], hit[1]], 'ro-')
+
+
+def simul_ray(room,
+              ray_segment_length,
+              source,
+              init_angle,
+              init_energy,
+              mic_pos,
+              mic_radius,
+              energy_thres=1.,
+              sound_speed=340.,
+              air_absorb_coef=0.15,
+              plot = False):
+    """
+    Simulate the evolution a ray emitted by the source with an initial angle and an inital energy in a room.
+    :param room: a room object in which the ray propagates
+    :param ray_segment_length: the length of the segment that ensures that a wall will be intersected by the ray
+    :param source: a 2 dim array representing the position of the source of the signal
+    :param init_angle: the angle (rad) with respect to the vector [1, 0] which gives its first direction to the ray
+    :param init_energy: the inital amount of energy of the ray
+    :param energy_thres: the energy threshold. If the ray's energy goes below this value before hitting the microphone, then the ray disappears
+    :param mic_pos: a 2 dim array representing the position of the circular microphone
+    :param mic_radius: the radius of the circular microphone (meters)
+    :param sound_speed: the speed of sound (meters/sec)
+    :param air_absorb_coef: the air absorption coefficient
+    :param plot : a boolean that controls if the ray is going to be plotted or not
+                - IMPORTANT : if plot=True then the function room.plot() must be called before simul_ray, and the function plt.plot() must be called after simul_ray
+    :return: a 3 tuple (has_hit, travel_time, remaining_energy)
+                - has_hit is a boolean which is True iff the ray reached the microphone with an energy above energy_thres
+                - travel_time is the time it took the ray to go from the source to the microphone.
+                - remaining_energy is the amount of energy that the ray has left when it hits the microphone
+                - IMPORTANT : if has_hit is False, then travel_time and remaining_energy are None
+    """
+
+    def failure():
+        """
+        Returns the correct tuple when the ray does not hit the microphone
+        :return: [False, None, None]
+        """
+        return [False, None, None]
+
+    start = source
+    angle = init_angle
+    energy = init_energy  # dB
     end = None
     wall = None
+    travel_time = 0
 
-    iteration = 0
-    max_iter = 30
+    while True:
 
-    while iteration < max_iter:
-
-        # Compute the second end of the segment
-        end = compute_segment_end(start, RAY_SEGMENT_LENGTH, angle)
-
+        end = compute_segment_end(start, ray_segment_length, angle)
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
 
-
-        # If the ray intersects the mic before reaching next hit_point, then the true hit_point is on the mic
         if intersects_circle(start, hit_point, mic_pos, mic_radius):
+
             hit_point, distance = closest_intersection(start, hit_point, mic_pos, mic_radius)
-            plt.plot([hit_point[0], start[0]], [hit_point[1], start[1]], 'ro-')
-            plt.plot([hit_point[0]], [hit_point[1]], marker='o', markersize=3, color="blue")
-            break
+            energy = air_absorption(energy, distance, air_absorb_coef)
 
-        #plt.plot([hit_point[0], start[0]], [hit_point[1], start[1]], 'ro-')
+            if energy >= energy_thres:
+                if plot:
+                    draw_segment(start, hit_point)
+                    draw_point(hit_point, markersize=3, color='purple')
+                return [True, update_travel_time(travel_time, distance, sound_speed), energy]
 
-        # We use all our information to compute the reflected angle
-        angle = compute_new_angle(start, hit_point, wall.normal,angle)
+            return failure()
 
-        # Found nothing
-        if iteration == max_iter - 1 :
-            plt.plot([hit_point[0], start[0]], [hit_point[1], start[1]], 'ro-')
-            plt.plot([hit_point[0]], [hit_point[1]], marker='x', markersize=10, color="green")
+        # Can the ray reach the next hit_point on 'wall' ?
+        energy = air_absorption(energy, distance, air_absorb_coef)
 
-        # We can now update start and end since we achieved to compute the angle with the previous info
+        # No it cannot
+        if energy < energy_thres:
+            if plot:
+                draw_point(start, marker='o', color='blue')
+                draw_point(hit_point, marker = 'x', color='blue')
+            return failure()
+
+        # Does the ray have enough energy to be reflected by the wall ?
+        energy = wall_absorption(energy, wall)
+
+        # No it does not
+        if energy < energy_thres:
+            if plot:
+                draw_segment(start, hit_point)
+                draw_point(hit_point, marker='x', color='green')
+            return failure()
+
+        if plot:
+            draw_segment(start, hit_point)
+
+        # Update for next rebound
+        travel_time = update_travel_time(travel_time, distance, sound_speed)
+        angle = compute_new_angle(start, hit_point, wall.normal, angle)
+
+        # We know that the new starting point is the previous hit point
         start = hit_point.copy()
-        iteration += 1
+
+
+# ==================== ROOM SETUP ====================
+
+# Add the circular microphone
+mic_pos = np.array([5.5, 2.])
+mic_radius = 0.15
+
+max_order = 1
+
+# Store the corners of the room floor in an array
+pol = 3 * np.array([[0.0,0.0], [0, 0.75], [2, 1], [2, 0.5],[1, 0.5], [1, 0]]).T
+
+# Create the room from its corners
+room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.1)
+
+# Add a source somewhere in the room
+room.add_source([1.5, 1.2])
+
+
+# ==================== RAY TRACING ====================
+
+
+RAY_SEGMENT_LENGTH = get_max_distance(room)
+
+
+energy = 100
+angle = range(1, 11)
+log = [None]*len(angle)
+room.plot(img_order=1)
+
+for index, a in enumerate(angle):
+    start_time = time.process_time()
+    log[index] = simul_ray(room, RAY_SEGMENT_LENGTH, room.sources[0].position, a, energy, mic_pos, mic_radius,plot=True)
+    print("running time for angle", a, ":", time.process_time() - start_time)
+
 
 plt.show()
-
 
