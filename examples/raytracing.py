@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import time
 import pyroomacoustics as pra
 import math
+from pyroomacoustics.utilities import fractional_delay
 
 
 PI = 3.141592653589793
@@ -71,6 +72,7 @@ def reverse_vector(v):
     """
     return -v[0], -v[1]
 
+
 def clip(value, down, up):
     """
     Clips the value in parameter to the value down or up
@@ -86,8 +88,6 @@ def clip(value, down, up):
     return value
 
 
-
-
 def equation(p1, p2):
     """
     Computes 'a' and 'b' coefficients in the expression y = a*x +b for the line defined by the two points in argument
@@ -99,9 +99,6 @@ def equation(p1, p2):
     a = (p2[1]-p1[1])/(p2[0]-p1[0])
 
     return a, p1[1] - a*p1[0]
-
-
-
 
 
 def get_quadrant(vec):
@@ -394,7 +391,10 @@ def closest_intersection(start, end, center, radius):
         if delta >= 0:
             return (-B + math.sqrt(delta)) / (2 * A), (-B - math.sqrt(delta)) / (2 * A)
 
-        raise ValueError("The roots are imaginary, something must be wrong")
+        return -B/(2*A), -B/(2*A)
+
+        # Note : Due to rounding errors, delta is sometimes negative (close to zero)
+        # In those cases I approximate it to be 0
 
     p, q = center
 
@@ -442,11 +442,32 @@ def update_travel_time(previous_travel_time, current_hop_length, speed):
 
 
 def air_absorption(previous_energy, distance_to_travel, coef):
-    return previous_energy - coef*distance_to_travel
+    return previous_energy/(4*PI*distance_to_travel)
 
 
 def wall_absorption(previous_energy, wall):
-    return previous_energy * (1 - wall.absorption)
+    return previous_energy * math.sqrt(1 - wall.absorption)
+
+
+def stop_ray (actual_energy, energy_thresh, actual_travel_time, time_thresh, which='with_energy'):
+    """
+    Returns True if the ray must be stopped according to the 'which' condition
+    :param actual_energy: energy left for the ray at the point of evaluation
+    :param energy_thresh: the minimum amount of energy allowed for the ray
+    :param actual_travel_time: total travel time of the ray from the source to the point of evaluation
+    :param time_thresh: the maximum travel time for the ray
+    :param which: string selecting the decision mode:
+                    - if which == 'with_energy' then the condition will be on energy
+                    - if which == 'with_time' then the condition will be on travel time
+    :return:
+    """
+
+    if which == 'with_energy':
+        return actual_energy < energy_thresh
+    elif which == 'with_time':
+        return actual_travel_time > time_thresh
+    else:
+        raise ValueError("The third parameter should be 'with_energy' or 'with_time'.")
 
 
 # ==================== DRAWING FUNCTIONS ====================
@@ -478,7 +499,9 @@ def simul_ray(room,
               init_energy,
               mic_pos,
               mic_radius,
+              stop_condition = 'with_time',
               energy_thres=1.,
+              time_thres = 0.3,  # seconds
               sound_speed=340.,
               air_absorb_coef=0.15,
               plot = False):
@@ -489,9 +512,13 @@ def simul_ray(room,
     :param source: a 2 dim array representing the position of the source of the signal
     :param init_angle: the angle (rad) with respect to the vector [1, 0] which gives its first direction to the ray
     :param init_energy: the inital amount of energy of the ray
-    :param energy_thres: the energy threshold. If the ray's energy goes below this value before hitting the microphone, then the ray disappears
     :param mic_pos: a 2 dim array representing the position of the circular microphone
     :param mic_radius: the radius of the circular microphone (meters)
+    :param stop_condition: string that can take 2 values :
+            - 'with_time' so that the rays are stopped when they travelling time reaches the time_thres
+            - 'with_energy' so that the rays are stopped when their energy reaches the energy_thres
+    :param energy_thres: the energy threshold. If the ray's energy goes below this value before hitting the microphone, then the ray disappears
+    :param time_thres: the time threshold. If the travelling time of the ray exceeds this value, then the ray disappears
     :param sound_speed: the speed of sound (meters/sec)
     :param air_absorb_coef: the air absorption coefficient
     :param plot : a boolean that controls if the ray is going to be plotted or not
@@ -508,6 +535,8 @@ def simul_ray(room,
         Returns the correct tuple when the ray does not hit the microphone
         :return: [False, None, None]
         """
+        if plot:
+            draw_point(source, color="green")
         return [False, None, None]
 
     start = source
@@ -520,27 +549,34 @@ def simul_ray(room,
 
     while True:
 
+
         end = compute_segment_end(start, ray_segment_length, angle)
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
 
         if intersects_circle(start, hit_point, mic_pos, mic_radius):
 
+
             hit_point, distance = closest_intersection(start, hit_point, mic_pos, mic_radius)
             energy = air_absorption(energy, distance, air_absorb_coef)
+            travel_time = update_travel_time(travel_time, distance, sound_speed)
 
-            if energy >= energy_thres:
+            if not stop_ray(energy, energy_thres, travel_time, time_thres, which=stop_condition) :
                 if plot:
                     draw_segment(start, hit_point)
+                    if plot:
+                        draw_point(source, color="green")
                     draw_point(hit_point, markersize=3, color='purple')
-                return [True, update_travel_time(travel_time, distance, sound_speed), energy]
+                return [True, travel_time, energy]
 
             return failure()
 
         # Can the ray reach the next hit_point on 'wall' ?
         energy = air_absorption(energy, distance, air_absorb_coef)
+        travel_time = update_travel_time(travel_time, distance, sound_speed)
+
 
         # No it cannot
-        if energy < energy_thres:
+        if stop_ray(energy, energy_thres, travel_time, time_thres, which=stop_condition):
             if plot:
                 draw_point(start, marker='o', color='blue')
                 draw_point(hit_point, marker = 'x', color='blue')
@@ -549,18 +585,20 @@ def simul_ray(room,
         # Does the ray have enough energy to be reflected by the wall ?
         energy = wall_absorption(energy, wall)
 
+
         # No it does not
-        if energy < energy_thres:
+        if stop_ray(energy, energy_thres, travel_time, time_thres, which=stop_condition):
             if plot:
                 draw_segment(start, hit_point)
                 draw_point(hit_point, marker='x', color='green')
             return failure()
 
+
         if plot:
             draw_segment(start, hit_point)
 
         # Update for next rebound
-        travel_time = update_travel_time(travel_time, distance, sound_speed)
+
         angle = compute_new_angle(start, hit_point, wall.normal, angle)
 
         # We know that the new starting point is the previous hit point
@@ -573,19 +611,19 @@ def simul_ray(room,
 # Add the circular microphone
 
 
-mic_pos = np.array([5.5, 2.])
-mic_radius = 0.15
+mic_pos = np.array([1, 2.])
+mic_radius = 0.05  # meters
 
 max_order = 1
 
 # Store the corners of the room floor in an array
-pol = 3 * np.array([[0.0,0.0], [0, 0.75], [2, 1], [2, 0.5],[1, 0.5], [1, 0]]).T
+pol = 3 * np.array([[0.0,0.0], [0, 1], [1, 1], [1, 0]]).T
 
 # Create the room from its corners
-room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.1)
+room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.5)
 
 # Add a source somewhere in the room
-room.add_source([1.5, 1.2])
+room.add_source([1., 1.])
 
 
 # ==================== MAIN ====================
@@ -594,12 +632,14 @@ room.add_source([1.5, 1.2])
 RAY_SEGMENT_LENGTH = get_max_distance(room)
 
 
-energy = 100
-angle = range(1,301)
-log = []
-
-
+energy = 700
+time_thres = 1.  # seconds
+angle = np.linspace(1,2*PI, 10000)
 plot = False
+
+# That angle is bugged : 1.629818670482855
+
+log=[]
 
 if plot:
     room.plot(img_order=1)
@@ -608,20 +648,58 @@ print("Set up done. Starting Ray Tracing")
 start_time = time.process_time()
 
 for index, a in enumerate(angle):
-    result = simul_ray(room, RAY_SEGMENT_LENGTH, room.sources[0].position, a, energy, mic_pos, mic_radius, plot=plot)
-
+    result = simul_ray(room,
+                       RAY_SEGMENT_LENGTH,
+                       room.sources[0].position,
+                       a,
+                       energy,
+                       mic_pos,
+                       mic_radius,
+                       stop_condition='with_time',
+                       energy_thres= 0.00001,
+                       time_thres=time_thres,
+                       plot=plot)
     if result[0]:
-        log = log + result
+        log = log + [result]
 
 print("running time for", len(angle), "rays:", time.process_time() - start_time)
+
+print(len(log))
 
 if plot:
     plt.show()
 
-# start_time = time.process_time()
-# np.pi
-# print(time.process_time()-start_time)
+
+# ============= Personnal try ================
+# ir = np.zeros(int(time_thres*room.fs))
 #
-# start_time = time.process_time()
-# PI
-# print(time.process_time()-start_time)
+# for elem in log:
+#     time_ip = int(np.floor(elem[1]*room.fs))
+#     ir[time_ip] += elem[1]
+#
+# x = np.arange(len(ir))/room.fs
+# plt.figure()
+# plt.plot(x, ir)
+# plt.show()
+
+
+
+# ================ What we made with Eric ===================
+fdl = pra.constants.get('frac_delay_length')
+fdl2 = (fdl-1) // 2  # Integer division
+
+ir = np.zeros(int(time_thres*room.fs) + fdl)
+
+for elem in log:
+    time_ip = int(np.floor(elem[1]*room.fs)) + fdl2
+
+    if time_ip > len(ir)-fdl2:
+        continue
+    time_fp = elem[1] - time_ip
+    ir[time_ip - fdl2:time_ip + fdl2 + 1] += elem[1] * fractional_delay(time_fp)
+
+x = np.arange(len(ir))/room.fs
+plt.figure()
+plt.plot(x, ir)
+plt.show()
+
