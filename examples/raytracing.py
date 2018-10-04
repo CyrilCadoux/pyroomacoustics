@@ -442,6 +442,8 @@ def update_travel_time(previous_travel_time, current_hop_length, speed):
 
 
 def air_absorption(previous_energy, distance_to_travel, coef):
+    if distance_to_travel == 0:
+        return previous_energy
     return previous_energy/(4*PI*distance_to_travel)
 
 
@@ -648,6 +650,9 @@ print("Set up done. Starting Ray Tracing")
 start_time = time.process_time()
 
 for index, a in enumerate(angle):
+
+    if index % 257 == 0:
+        print("\r", 100 * float(index) / len(angle), " %", end='', flush=True)
     result = simul_ray(room,
                        RAY_SEGMENT_LENGTH,
                        room.sources[0].position,
@@ -662,26 +667,13 @@ for index, a in enumerate(angle):
     if result[0]:
         log = log + [result]
 
-print("running time for", len(angle), "rays:", time.process_time() - start_time)
+print("\rDone.")
+print("Running time for", len(angle), "rays:", time.process_time() - start_time)
 
 print(len(log))
 
 if plot:
     plt.show()
-
-
-# ============= Personnal try ================
-# ir = np.zeros(int(time_thres*room.fs))
-#
-# for elem in log:
-#     time_ip = int(np.floor(elem[1]*room.fs))
-#     ir[time_ip] += elem[1]
-#
-# x = np.arange(len(ir))/room.fs
-# plt.figure()
-# plt.plot(x, ir)
-# plt.show()
-
 
 
 # ================ What we made with Eric ===================
@@ -698,8 +690,8 @@ for elem in log:
     time_fp = elem[1] - time_ip
     ir[time_ip - fdl2:time_ip + fdl2 + 1] += elem[1] * fractional_delay(time_fp)
 
-x = np.arange(len(ir))/room.fs
-plt.figure()
-plt.plot(x, ir)
-plt.show()
+# x = np.arange(len(ir))/room.fs
+# plt.figure()
+# plt.plot(x, ir)
+# plt.show()
 
