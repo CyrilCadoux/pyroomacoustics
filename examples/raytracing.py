@@ -15,64 +15,118 @@ from pyroomacoustics.utilities import fractional_delay
 
 PI = 3.141592653589793
 
-# ==================== 2D FUNCTIONS ====================
+# ==================== VECTOR SPACE FUNCTIONS ====================
 
 
 def norm(v):
     """
     Computes the norm of a vector
-    :param v: a 2 dim array representing a vector
+    :param v: an array of length 2 or 3 representing a vector
     :return: a positive scalar : the norm of v
     """
-    return math.sqrt(v[0]*v[0]+v[1]*v[1])
+    if len(v) == 2:
+        return math.sqrt(v[0]*v[0] + v[1]*v[1])
+    if len(v) == 3:
+        return math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
+
+    raise ValueError("The norm(v) function only supports 2 or 3 long vectors")
 
 
-def normalize(vector):
+def normalize(v):
     """
     Returns the unit vector of the vector.
-    :param vector: an 2 dim array representing a vector
+    :param v: an array of length 2 or 3 representing a vector
     :return: the same vector but with a magnitude of 1
     """
-    return vector[0]/ norm(vector), vector[1]/ norm(vector)
+
+    vnorm = norm(v)
+
+    if len(v) == 2:
+        return v[0]/vnorm, v[1]/vnorm
+    if len(v) == 3:
+        return v[0]/vnorm, v[1]/vnorm, v[2]/vnorm
+
+    raise ValueError("The normalize(v) function only supports 2 or 3 long vectors.")
 
 
 def dist(p1, p2):
     """
     Returns the euclidean distance between p1 and p2
-    :param p1: a 2 dim array representing the first point
-    :param p2: a 2 dim array representing the second point
+    :param p1: an array of length 2 or 3 representing the first point
+    :param p2: an array of length 2 or 3 representing the second point
     :return: a double, the euclidean distance between p1 and p2
     """
-    return math.sqrt((p1[0]-p2[0])*(p1[0]-p2[0]) + (p1[1]-p2[1])*(p1[1]-p2[1]))
+    if len(p1) == len(p2) and len(p1) == 2:
+        return math.sqrt( (p1[0]-p2[0])*(p1[0]-p2[0]) + (p1[1]-p2[1])*(p1[1]-p2[1]) )
+
+    if len(p1) == len(p2) and len(p1) == 3:
+        return math.sqrt( (p1[0]-p2[0])*(p1[0]-p2[0]) + (p1[1]-p2[1])*(p1[1]-p2[1]) + (p1[2]-p2[2])*(p1[2]-p2[2]))
+
+    raise ValueError("Function dist(p1,p2) only supports vectors of same length (2 or 3).")
 
 
 def dot(v1, v2):
     """
     Computes the dot product of 2 2-dim array
-    :param v1: a 2 dim array representing a vector
-    :param v2: a 2 dim array representing a vector
+    :param v1: an array of length 2 or 3 representing a vector
+    :param v2: an array of length 2 or 3 representing a vector
     :return: a scalar representing the dot product v1.v2
     """
-    return v1[0]*v2[0] + v1[1]*v2[1]
+    if len(v1) == len(v2) and len(v1) == 2:
+        return v1[0]*v2[0] + v1[1]*v2[1]
 
+    if len(v1) == len(v2) and len(v1) == 3:
+        return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2]
+
+    raise ValueError("Function dot(v1,v2) only supports vectors of same length (2 or 3).")
+
+
+def substract(v1, v2):
+    """
+    Computes the substraction of 2 vectors
+    :param v1: an array of length 2 or 3 defining the first vector
+    :param v2: an array of length 2 or 3 defining the second vector
+    :return: an array of length 2 or 3 defining v1 - v2
+    """
+
+    if len(v1) == len(v2) and len(v1) == 2:
+        return v1[0]-v2[0], v1[1]-v2[1]
+
+    if len(v1) == len(v2) and len(v1) == 3:
+        return v1[0]-v2[0], v1[1]-v2[1], v1[2]*v2[2]
+
+    raise ValueError("Function substract(v1,v2) only supports vectors of same length (2 or 3).")
 
 def make_vector(start_point, end_point):
     """
     Computes the vector going from the starting point to the end point
-    :param start_point: a 2 dim array respresenting the start
-    :param end_point: a 2 dim array representing the destination
-    :return: a 2 dim array representing a vector going from start to end
+    :param start_point: an array of length 2 or 3 representing the start point
+    :param end_point: an array of length 2 or 3 representing the destination point
+    :return: an array of the same length than the parameters representing a vector going from start to end
     """
-    return end_point[0]-start_point[0], end_point[1]-start_point[1]
+    if len(start_point) == len(end_point) and len(end_point) == 2:
+        return end_point[0] - start_point[0], end_point[1] - start_point[1]
+
+    if len(start_point) == len(end_point) and len(end_point) == 3:
+        return end_point[0] - start_point[0], end_point[1] - start_point[1], end_point[2] - start_point[2]
+
+    raise ValueError("Function make_vector(p1,p2) only supports vectors of same length (2 or 3).")
 
 
 def reverse_vector(v):
     """
     Computes the vector going in the opposite direction than v
-    :param v: a 2 dim array representing a vector to be reversed
-    :return: a 2 dim array representing a vector going in the opposite direction than v
+    :param v: an array of length 2 or 3 representing a vector to be reversed
+    :return: an array of length 2 or 3 representing a vector going in the opposite direction than v
     """
-    return -v[0], -v[1]
+
+    if len(v) == 2:
+        return -v[0], -v[1]
+
+    if len(v) == 3:
+        return -v[0], -v[1], -v[2]
+
+    raise ValueError("Function reverse_vector(v) only supports a vector of length 2 or 3.")
 
 
 def clip(value, down, up):
@@ -114,6 +168,9 @@ def get_quadrant(vec):
                 - 4 if the vector (starting from (0,0)) belongs to the last quadrant ([3pi/2, 2pi])
     """
 
+    if len(vec) != 2:
+        raise ValueError("The function get_quadrant(vec) only supports a vector of length 2")
+
     if vec[0] >= 0:
         if vec[1] >= 0:
             return 1
@@ -126,50 +183,66 @@ def get_quadrant(vec):
 
 def angle_between(v1, v2):
     """
-    Returns the angle in radians between vectors 'v1' and 'v2'
+    Returns the angle in radians between two 2D vectors 'v1' and 'v2'
 
     :param v1: an N dim array representing the first vector
     :param v2: an N dim array representing the first vector
     :return: the angle formed by the two vectors. WARNING : the angle is not signed, hence it belongs to [0,pi]
     """
+    if len(v1) != 2 or len(v2) != 2:
+        raise ValueError("The function angle_between(v1,v2) only supports vectors of length 2")
+
     v1_u = normalize(v1)
     v2_u = normalize(v2)
     return math.acos(clip(dot(v1_u, v2_u), -1.0, 1.0))
 
+
+def cross_product(u, v):
+    """
+    Computes the cross product of 2 vectors of length 3
+    :param u: an array of length 3 representing the first vector
+    :param v: an array of length 3 representing the second vector
+    :return: an array of length 3 representing the cross product of the two input vectors
+    """
+
+    if len(u) != 3 or len(v) != 3 :
+        raise ValueError("The function cross_product(v1,v2) only supports vectors of length 3 ")
+
+    return u[1]*v[2]-v[1]*u[2], v[0]*u[2] - u[0]*v[2], u[0]*v[1]-v[0]*u[1]
 
 # ==================== ALGO FUNCTIONS ====================
 
 
 def get_max_distance(room):
     """
-    Computes the maximum distance that a ray could cover without hitting anything.
+    Computes the maximum distance that a ray could possibly cover inside the room without hitting a wall.
     Every ray will be seen as a segment of this length+1, so that it is sure that it hits at least one wall.
     This allows us to use the wall.intersection function to compute the hitting point
 
-    :arg room: the room that is studied
+    :arg room: the room that is studied, can be in 2D or 3D
     :returns: a double corresponding to the max distance
     """
 
-    def get_extreme_xy(room, top_right=True):
-        """
-        Combines the coordinates of all wall corners to yield a point that is placed in the extreme
-        top right OR bottom left position
+    # NOTE : Storage of corners coordinates for each wall :
+    # [[x_corner0, x_corner1, x_corner2, x_corner3]
+    # [y_corner0, y_corner1, y_corner2, y_corner3]
+    # [z_corner0, z_corner1, z_corner2, z_corner3]...]
 
-        :param room: The room being studied
-        :param top_right: Boolean that controls the output.
-        :return: The extreme top_right OR bottom left point with format [x y]
-        """
-        # [[x_min_wall_0, y_min_wall_0]
-        # [x_min_wall_1, y_min_wall_1]...]
 
-        if top_right:
-            largest_xy = np.array([np.ndarray.max(w.corners, 1) for w in room.walls])
-            return np.ndarray.max(largest_xy, 0)
+    # Every 2D wall has 2 corners (2D) or 4 corners (3D)
+    # So for every wall in 2 we take the largest x and y among the 2 corners
+    # So for every wall in 3D we take the largest x, y and z among the 4 corners
+    largest_xy = np.array([np.ndarray.max(w.corners, 1) for w in room.walls])
 
-        smallest_xy = np.array([np.ndarray.min(w.corners, 1) for w in room.walls])
-        return np.ndarray.min(smallest_xy, 0)
+    # Return a new point made of the maxX, maxY, maxZ (in case of 3D room)
+    largest_point =  np.ndarray.max(largest_xy, 0)
 
-    return dist(get_extreme_xy(room, False), get_extreme_xy(room)) + 1
+
+    # Do the same as above for the smallest values of x, y and z
+    smallest_xy = np.array([np.ndarray.min(w.corners, 1) for w in room.walls])
+    smallest_point =  np.ndarray.min(smallest_xy, 0)
+
+    return dist(largest_point, smallest_point) + 1
 
 
 def compute_segment_end(start, length, alpha):
@@ -325,18 +398,25 @@ def compute_new_angle(start, hit_point, wall_normal, alpha):
 def dist_line_point(start, end, point):
     """
     Computes the distance between a segment and a point
-    :param start: a 2 dim array defining the starting point of the segment
-    :param end: a 2 dim array defining the end point of the segment
-    :param point: a 2 dim array defining the point that we want to know the distance to the segment
+    :param start: an array of length 2 or 3 defining the starting point of the segment
+    :param end: an array of length 2 or 3 defining the end point of the segment
+    :param point: an array of length 2 or 3 the point that we want to know the distance to the segment
     :return: the distance between the point and the segment
     """
 
-    if start[0] == end[0]:  # Here we cannot use algebra since the segment is vertical
-        return abs(point[0] - start[0])
+    # 2D case
+    if len(start) == len(end) and len(start) == len(point) and len(start) == 2 :
 
-    a, b = equation(start, end)
+        if start[0] == end[0]:  # Here we cannot use algebra since the segment is vertical
+            return abs(point[0] - start[0])
 
-    return abs(point[1] - a*point[0] - b) / math.sqrt(a*a + 1)
+        a, b = equation(start, end)
+
+        return abs(point[1] - a*point[0] - b) / math.sqrt(a*a + 1)
+
+        # 3D case
+        if len(start) == len(end) and len(start) == len(point) and len(start) == 3:
+            return norm(cross_product(substract(point,start),substract(point,end))) / norm(substract(end,start))
 
 
 def intersects_circle(start, end, center, radius):
@@ -642,6 +722,8 @@ def get_rir_rt(room,
 
     # To store info about rays that reach the mic
     log = []
+    angles = np.linspace(1, 2 * PI, nb_rays)
+    max_dist = get_max_distance(room)
 
     if plot_rays:
         room.plot(img_order=1)
@@ -649,15 +731,15 @@ def get_rir_rt(room,
     print("Set up done. Starting Ray Tracing")
     start_time = time.process_time()
 
-    for index, angle in enumerate(np.linspace(1, 2 * PI, nb_rays)):
+    for index, angle in enumerate(angles):
 
         # Print the status
-        if index % (nb_rays / 100.) == 0:
-            print("\r", 100 * float(index) / nb_rays, "%", end='', flush=True)
+        if index % (nb_rays // 100) == 0:
+            print("\r", 100*index//nb_rays, "%", end='', flush=True)
 
         # Trace 1 ray
         result = simul_ray(room,
-                           get_max_distance(room),
+                           max_dist,
                            angle,
                            init_energy,
                            mic_pos,
@@ -665,6 +747,8 @@ def get_rir_rt(room,
                            stop_condition=stop_condition,
                            energy_thres=energy_thres,
                            time_thres=time_thres,
+                           sound_speed=sound_speed,
+                           air_absorb_coef=air_absorb_coef,
                            plot=plot_rays)
 
         # If the ray reached the mic, store info
@@ -737,7 +821,7 @@ mic_radius = 0.05  # meters
 max_order = 1
 
 # Store the corners of the room floor in an array
-pol = 3 * np.array([[0.0,0.0], [0, 1], [1, 1], [1, 0]]).T
+pol = 3 * np.array([[0.1, 0.], [0.1, 1], [1, 1], [1, 0]]).T
 
 # Create the room from its corners
 room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.05)
@@ -748,14 +832,23 @@ room.add_source([1., 1.], signal=audio_anechoic)
 
 # ==================== MAIN ====================
 
-nb_rays = 1000
+nb_rays = 10000
+init_energy = 1000
+ray_simul_time = 0.5
 
-rir = get_rir_rt(room, nb_rays, 0.5, 1000, mic_pos, mic_radius, plot_RIR=True)
+rir = get_rir_rt(room, nb_rays, ray_simul_time, init_energy, mic_pos, mic_radius, plot_RIR=True)
 
 apply_rir(rir, audio_anechoic, result_name="result_"+str(nb_rays)+".wav")
 
 
 
+# s = time.process_time()
+# a = 2**3
+# print(time.process_time() - s)
+#
+# s = time.process_time()
+# a = 2*2*2
+# print(time.process_time() - s)
 
 # ======= PART WITH FRACTIONAL DELAY ========
 # fdl = pra.constants.get('frac_delay_length')
