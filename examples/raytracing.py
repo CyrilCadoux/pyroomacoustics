@@ -81,6 +81,24 @@ def dot(v1, v2):
     raise ValueError("Function dot(v1,v2) only supports vectors of same length (2 or 3).")
 
 
+def scale(v, k):
+    """
+    Scales the vector v by k
+    :param v: an array of length 2 or 3 defining the  vector
+    :param k: the scalar factor
+    :return: an array of length 2 or 3 defining k*v
+    """
+
+    if len(v) == 2:
+        return k*v[0], k*v[1]
+
+    if len(v) == 3:
+        return k*v[0], k*v[1], k*v[2]
+
+    raise ValueError("Function scalar_prod(v,k) only supports vector of length 2 or 3.")
+
+
+
 def substract(v1, v2):
     """
     Computes the substraction of 2 vectors
@@ -93,10 +111,25 @@ def substract(v1, v2):
         return v1[0]-v2[0], v1[1]-v2[1]
 
     if len(v1) == len(v2) and len(v1) == 3:
-        return v1[0]-v2[0], v1[1]-v2[1], v1[2]*v2[2]
+        return v1[0]-v2[0], v1[1]-v2[1], v1[2]-v2[2]
 
     raise ValueError("Function substract(v1,v2) only supports vectors of same length (2 or 3).")
 
+def add(v1, v2):
+    """
+    Computes the addition of 2 vectors
+    :param v1: an array of length 2 or 3 defining the first vector
+    :param v2: an array of length 2 or 3 defining the second vector
+    :return: an array of length 2 or 3 defining v1 + v2
+    """
+
+    if len(v1) == len(v2) and len(v1) == 2:
+        return v1[0]+v2[0], v1[1]+v2[1]
+
+    if len(v1) == len(v2) and len(v1) == 3:
+        return v1[0]+v2[0], v1[1]+v2[1], v1[2]+v2[2]
+
+    raise ValueError("Function add(v1,v2) only supports vectors of same length (2 or 3).")
 
 
 
@@ -192,8 +225,6 @@ def angle_between(v1, v2):
     :param v2: an N dim array representing the first vector
     :return: the angle formed by the two vectors. WARNING : the angle is not signed, hence it belongs to [0,pi]
     """
-    if len(v1) != 2 or len(v2) != 2:
-        raise ValueError("The function angle_between(v1,v2) only supports vectors of length 2")
 
     v1_u = normalize(v1)
     v2_u = normalize(v2)
@@ -212,6 +243,7 @@ def cross_product(u, v):
         raise ValueError("The function cross_product(v1,v2) only supports vectors of length 3 ")
 
     return u[1]*v[2]-v[1]*u[2], v[0]*u[2] - u[0]*v[2], u[0]*v[1]-v[0]*u[1]
+
 
 
 # ==================== ALGO FUNCTIONS ====================
@@ -249,15 +281,26 @@ def get_max_distance(room):
     return dist(largest_point, smallest_point) + 1
 
 
-def compute_segment_end(start, length, alpha):
+def compute_segment_end(start, length, phi, theta=0.):
     """
     Computes the end point of a segment, given its starting point, its angle and its length
-    :param start: a 2 dim array defining the starting position
+    :param start: an array of length 2 or 3 defining the starting position
     :param length: the length of the segment
-    :param alpha: the angle (rad) of the segment with respect to the reference vector [x=1, y=0]
-    :return: a 2 dim array containing the end point of the segment
+    :param phi: the angle (rad) defining the direction of the segment
+                in the (x,y) plane with respect to the reference vector [x=1, y=0]
+    :param theta: the angle (rad) defining the elevation of the segment in the 3rd dimension
+                when theta belongs to [0 ; pi/2] the segment goes upward
+                when theta belongs to [pi/2 ; pi] the segment goes downward
+    :return: an array of length 2 or 3 containing the end point of the segment
     """
-    return [start[0] + length*np.cos(alpha), start[1]+length*np.sin(alpha)]
+
+    if len(start) == 2:
+        return [start[0] + length*np.cos(phi), start[1] + length*np.sin(phi)]
+
+    if len(start) == 3:
+        return [start[0] + length*np.sin(theta)*np.cos(phi), start[1] + length*np.sin(theta)*np.sin(phi), start[2] + length*np.cos(theta)]
+
+    raise ValueError("Function compute_segment_end() only supports points of dimension 2 or 3.")
 
 
 def same_wall(w1, w2):
@@ -303,6 +346,9 @@ def get_intersected_walls(start, end, room, previous_wall):
     return intersected_walls
 
 
+
+
+
 def next_wall_hit(start, end, room, previous_wall):
     """
     Finds the next wall that will be hit by the ray (represented as a segment here) and outputs the hitting point.
@@ -339,80 +385,101 @@ def next_wall_hit(start, end, room, previous_wall):
     return intersection_points[correct_wall], dist_from_start[correct_wall], intersected_walls[correct_wall]
 
 
-def compute_new_angle(start, hit_point, wall_normal, alpha):
+def compute_new_angle(start, hit_point, wall_normal, phi, theta=0.):
     """
     Computes the new directional angle of the ray when the latter hits a wall
-    :param start: a 2 dim array that represents the point that originated the ray before the hit.
+    :param start: an array of length 2 or 3 representing the point that originated the ray before the hit.
                 This point is either the previous hit point, or the source of the sound (for the first iteration).
-    :param hit_point: a 2 dim array that represents the intersection between the ray and the wall
-    :param wall_normal: a 2 dim array that represents the normal vector of the wall
-    :param alpha: The angle of the incident vector with respect to the [1,0] vector
-    :return: a new angle (rad) that will give its direction to the ray
+    :param hit_point: an array of length 2 or 3 representing the intersection between the ray and the wall
+    :param wall_normal: an array of length 2 or 3 representing the normal vector of the wall
+    :param phi: the angle (rad) defining the direction of the segment
+                in the (x,y) plane with respect to the reference vector [x=1, y=0]
+    :param theta: the angle (rad) defining the elevation of the segment in the 3rd dimension
+                when theta belongs to [0 ; pi/2] the segment goes upward
+                when theta belongs to [pi/2 ; pi] the segment goes downward
+    :return: The output is different wether the room is 2D or 3D:
+                - 2D : a new angle phi(rad) that gives its new 2D direction to the ray
+                - 3D : a tuple [phi, theta] that gives its new 3D direction to the ray
     """
 
-    # The reference vector to compute the angles
-    ref_vec = [1, 0]
+    # 2D case
+    if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 2:
 
-    # The incident vector
-    incident = make_vector(start, hit_point)
+        # The reference vector to compute the 2D angles
+        ref_vec = [1, 0]
 
-    # We get the quadrant of both vectors
-    qi = get_quadrant(incident)
-    qn = get_quadrant(wall_normal)
+        # The incident vector
+        incident = make_vector(start, hit_point)
 
-    '''
-    =================
-    Tricky part here :
-    
-    There is the extreme case where the normal is purely vertical or horizontal.
-        (1) If the normal is vertical, the wall is horizontal and thus we return -alpha
-        (2) If the normal is horizontal, the wall is vertical and thus we return pi-alpha
-    
-    Otherwise, here are the cases where we should work with the inverted version of the wall_normal,
-    since the given normal points to the 'wrong' side of the wall :
-        (1) the angle between the reverse incident ray and the normal should be less than pi/2
-    
-    =================
-    '''
-
-    # When normal is vertical, ie the wall is horizontal
-    if dot([1, 0], wall_normal) == 0:
-        return -alpha
-
-    # When normal is horizontal, ie the wall is vertical
-    if dot([0, 1], wall_normal) == 0:
-
-        return PI-alpha
-
-    # We use this reverse version to see if the normal points 'inside' of 'outside' the room
-    reversed_incident = reverse_vector(incident)
-
-    if angle_between(reversed_incident, wall_normal) > PI/2:
-        wall_normal = reverse_vector(wall_normal)
+        # We get the quadrant of both vectors
+        qi = get_quadrant(incident)
         qn = get_quadrant(wall_normal)
 
-    # Here we must be careful since angle_between() only yields positive angles
-    beta = angle_between(reversed_incident, wall_normal)
-    n_alpha = angle_between(ref_vec, wall_normal)
+        '''
+        =================
+        Tricky part here :
+        
+        There is the extreme case where the normal is purely vertical or horizontal.
+            (1) If the normal is vertical, the wall is horizontal and thus we return -alpha
+            (2) If the normal is horizontal, the wall is vertical and thus we return pi-alpha
+        
+        Otherwise, here are the cases where we should work with the inverted version of the wall_normal,
+        since the given normal points to the 'wrong' side of the wall :
+            (1) the angle between the reverse incident ray and the normal should be less than pi/2
+        
+        =================
+        '''
 
-    if qi == 1 and qn == 2: result = n_alpha - beta
-    elif qi == 1 and qn == 3: result = -n_alpha + beta
-    elif qi == 1 and qn == 4: result = -n_alpha + beta
+        # When normal is vertical, ie the wall is horizontal
+        if dot([1, 0], wall_normal) == 0:
+            return -phi
 
-    elif qi == 2 and qn == 1: result = n_alpha + beta
-    elif qi == 2 and qn == 3: result = -n_alpha - beta
-    elif qi == 2 and qn == 4: result = -n_alpha - beta
+        # When normal is horizontal, ie the wall is vertical
+        if dot([0, 1], wall_normal) == 0:
 
-    elif qi == 3 and qn == 1: result = n_alpha + beta
-    elif qi == 3 and qn == 2: result = n_alpha + beta
-    elif qi == 3 and qn == 4: result = -n_alpha - beta
+            return PI - phi
 
-    elif qi == 4 and qn == 1: result = n_alpha - beta
-    elif qi == 4 and qn == 2: result = n_alpha - beta
-    else: result = -n_alpha + beta
+        # We use this reverse version to see if the normal points 'inside' of 'outside' the room
+        reversed_incident = reverse_vector(incident)
 
-    return result
+        if angle_between(reversed_incident, wall_normal) > PI/2:
+            wall_normal = reverse_vector(wall_normal)
+            qn = get_quadrant(wall_normal)
 
+        # Here we must be careful since angle_between() only yields positive angles
+        beta = angle_between(reversed_incident, wall_normal)
+        n_alpha = angle_between(ref_vec, wall_normal)
+
+        if qi == 1 and qn == 2: result = n_alpha - beta
+        elif qi == 1 and qn == 3: result = -n_alpha + beta
+        elif qi == 1 and qn == 4: result = -n_alpha + beta
+
+        elif qi == 2 and qn == 1: result = n_alpha + beta
+        elif qi == 2 and qn == 3: result = -n_alpha - beta
+        elif qi == 2 and qn == 4: result = -n_alpha - beta
+
+        elif qi == 3 and qn == 1: result = n_alpha + beta
+        elif qi == 3 and qn == 2: result = n_alpha + beta
+        elif qi == 3 and qn == 4: result = -n_alpha - beta
+
+        elif qi == 4 and qn == 1: result = n_alpha - beta
+        elif qi == 4 and qn == 2: result = n_alpha - beta
+        else: result = -n_alpha + beta
+
+        return result
+
+    # 3D case :
+    # Much easier since the floor and the roof are parallele to the (x,y) plane
+    # Much easier since the walls are always perpendicular to the (x,y) plane
+
+    # When the ray hits roof or floor, phi remains the same and new_theta = PI-theta
+    # When the ray hits a wall, phi is computed as in 2D case, and theta remains the same
+
+    if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 3:
+
+        return [0,1]
+
+    raise ValueError("The function compute_new_angle only supports vectors and points of same dimension (2 or 3)")
 
 # ==================== MICROPHONE FUNCTIONS ====================
 
@@ -443,45 +510,50 @@ def dist_line_point(start, end, point):
     raise ValueError("The function dist_line_point only supports arrays of the same size (2 or 3).")
 
 
-def intersects_circle(start, end, center, radius):
+def intersects_mic(start, end, center, radius):
     """
     Returns True iff the segment between the points 'start' and 'end' intersect the circle defined by center and radius
-    :param start: a 2 dim array defining the starting point of the segment
-    :param end: a 2 dim array defining the end point of the segment
-    :param center: a 2 dim array defining the center point of the circle
-    :param radius: the radius of the circle
+    :param start: an array of length 2 or 3 defining the starting point of the segment
+    :param end: an array of length 2 or 3 defining the end point of the segment
+    :param center: an array of length 2 or 3 defining the center point of the circle
+    :param radius: the radius of the microphone
     :return: True if the segment intersects the circle, False otherwise
     """
 
-    start_end_vect = end - start
-    start_center_vect = center - start
+    start_end_vect = make_vector(start, end)
+    start_center_vect = make_vector(start, center)
 
     end_start_vect = reverse_vector(start_end_vect)
-    end_center_vect = center - end
+    end_center_vect = make_vector(end, center)
 
     # Boolean
     intersection = dist_line_point(start, end, center) <= radius
 
-    in_the_room = angle_between(start_end_vect, start_center_vect) < PI/2 \
+    # Boolean to check that the microphone is "between" start and end
+    # Handle situations of non-convex rooms where the mic can be very close to
+    # the infinite line (start, end) without being reachable by the ray
+    between_start_and_end = angle_between(start_end_vect, start_center_vect) < PI/2 \
                   and angle_between(end_start_vect, end_center_vect) < PI/2
 
-    return intersection and in_the_room
+    return intersection and between_start_and_end
 
 
-def closest_intersection(start, end, center, radius):
+def mic_intersection(start, end, center, radius):
     """
-    Computes the intersection point between a segment and a circle. As there are often 2 such points, this function
-    returns only the closest point to the start of the segment, ie the point where the ray is detected by the
-    circular receiver. The function also outputs the distance between this point and the start of the segment in order
+    Computes the intersection point between a segment and a circle/sphere (depending on the dimensionality of the room.
+    As there are often 2 such points, this function returns only the closest point to the start of the segment,
+    ie the point where the ray is detected by the circular receiver.
+    The function also outputs the distance between this point and the start of the segment in order
     to facilitate the computation of air absoption and travelling time.
-    :param start: a 2 dim array defining the starting point of the segment
-    :param end: a 2 dim array defining the end point of the segment
-    :param center: a 2 dim array defining the center of the circle (detector)
-    :param radius: the radius of the circle
-    :return: a 2 dim array [intersection, distance]
-                - intersection is a 2 dim array defining the intersection between the segment and the circle
+    :param start: an array of length 2 or 3 defining the starting point of the segment
+    :param end: an array of length 2 or 3 defining the end point of the segment
+    :param center: an array of length 2 or 3 array defining the center of the circle (detector)
+    :param radius: the radius of the circle or sphere
+    :return: an array of length 2 : [intersection, distance]
+                - intersection is an array of length 2 or 3 defining the intersection between the segment and the microphone
                 - distance is the euclidean distance between 'intersection' and 'start'
     """
+
 
     def solve_quad(A, B, C):
         """
@@ -502,35 +574,76 @@ def closest_intersection(start, end, center, radius):
         # Note : Due to rounding errors, delta is sometimes negative (close to zero)
         # In those cases I approximate it to be 0
 
-    p, q = center
+    # 2D case
+    if len(start) == len(end) and len(start) == len(center) and len(start) == 2:
+        p, q = center
 
-    if start[0] == end[0]:  # When the segment is vertical, we already know the x coordinate of the intersection
-        A = 1
-        B = -2 * q
-        C = q * q + (start[0] - p) * (start[0] - p) - radius * radius
-        x1 = start[0]
-        x2 = start[0]
-        y1, y2 = solve_quad(A, B, C)
+        if start[0] == end[0]:  # When the segment is vertical, we already know the x coordinate of the intersection
+            A = 1
+            B = -2 * q
+            C = q * q + (start[0] - p) * (start[0] - p) - radius * radius
+            x1 = start[0]
+            x2 = start[0]
+            y1, y2 = solve_quad(A, B, C)
 
-    else:   # See the formula on the first answer :
-            # https://math.stackexchange.com/questions/228841/how-do-i-calculate-the-intersections-of-a-straight-line-and-a-circle
+        else:   # See the formula on the first answer :
+                # https://math.stackexchange.com/questions/228841/how-do-i-calculate-the-intersections-of-a-straight-line-and-a-circle
 
-        m, c = equation(start, end)
+            m, c = equation(start, end)
 
-        A = m * m + 1
-        B = 2 * (m * c - m * q - p)
-        C = (q * q - radius * radius + p * p - 2 * c * q + c * c)
+            A = m * m + 1
+            B = 2 * (m * c - m * q - p)
+            C = (q * q - radius * radius + p * p - 2 * c * q + c * c)
 
-        x1, x2 = solve_quad(A, B, C)
+            x1, x2 = solve_quad(A, B, C)
 
-        y1 = m * x1 + c
-        y2 = m * x2 + c
+            y1 = m * x1 + c
+            y2 = m * x2 + c
 
-    d1 = dist([x1, y1], start)
-    d2 = dist([x2, y2], start)
+        d1 = dist([x1, y1], start)
+        d2 = dist([x2, y2], start)
 
-    return [[x1, y1], d1] if d1 <= d2 else [[x2, y2], d2]
+        return [[x1, y1], d1] if d1 <= d2 else [[x2, y2], d2]
 
+    # 3D case
+    if len(start) == len(end) and len(start) == len(center) and len(start) == 3:
+
+        # Following https://en.wikipedia.org/wiki/Line%E2%80%93sphere_intersection
+        # Checked with : http://www.ambrsoft.com/TrigoCalc/Sphere/SpherLineIntersection_.htm
+        l = normalize(make_vector(start, end))
+        o = start
+        c = center
+        r = radius
+
+        # We are searching d such that a point x on the sphere is also on the line
+        # ie : x = o + k*l  (recall l has unit norm)
+
+        o_c = substract(o,c)
+
+        delta = dot(l, o_c)**2 - norm(o_c)**2 + r*r
+
+        if delta > 0:
+            k1 = (-1) * dot(l, o_c) + math.sqrt(delta)
+            k2 = (-1) * dot(l, o_c) - math.sqrt(delta)
+
+            inter1 = add(o, scale(l, k1))
+            d1 = dist(inter1, start)
+
+            inter2 = add(o, scale(l, k2))
+            d2 = dist(inter2, start)
+
+            return [inter1, d1] if d1 <= d2 else [inter2, d2]
+
+        # The delta should never be negative since we call this function once
+        # we know that there is indeed an intersection.
+        # (rounding error can lead to negative delta close to zero)
+        k = (-1) * dot(l, o_c)
+        inter = add(o, scale(l, k))
+        return [inter, dist(inter, start)]
+
+
+
+    raise ValueError("The function mic_intersection() only supports points of same dimension (2 or 3)")
 
 # ==================== TIME ENERGY FUNCTIONS ====================
 
@@ -560,7 +673,7 @@ def wall_absorption(previous_energy, wall):
     return previous_energy * math.sqrt(1 - wall.absorption)
 
 
-def stop_ray (actual_energy, energy_thresh, actual_travel_time, time_thresh, which='with_energy'):
+def stop_ray (actual_energy, energy_thresh, actual_travel_time, time_thresh, which='with_time'):
     """
     Returns True if the ray must be stopped according to the 'which' condition
     :param actual_energy: energy left for the ray at the point of evaluation
@@ -581,7 +694,8 @@ def stop_ray (actual_energy, energy_thresh, actual_travel_time, time_thresh, whi
         raise ValueError("The third parameter should be 'with_energy' or 'with_time'.")
 
 
-def scattering_ray(room, last_wall,
+def scattering_ray(room,
+                   last_wall,
                    last_hit,
                    mic_pos,
                    scat_energy,
@@ -617,7 +731,7 @@ def scattering_ray(room, last_wall,
     # In case the scattering way can reach the mic with a straight line
     if intersects_no_wall:
 
-        hit_point, distance = closest_intersection(last_hit, mic_pos, mic_pos, mic_radius)
+        hit_point, distance = mic_intersection(last_hit, mic_pos, mic_pos, mic_radius)
         scat_energy = distance_attenuation(scat_energy, distance)
         travel_time = update_travel_time(actual_travel_time, distance, sound_speed)
 
@@ -628,27 +742,40 @@ def scattering_ray(room, last_wall,
 
     return []
 
-
 # ==================== DRAWING FUNCTIONS ====================
 
 
 def draw_point(pos,  marker='o', markersize=10, color="red" ):
     """
     Draw a point on a plot at position pos
-    :param pos: a 2 dim array representing the position of the point
+    :param pos: an array of length 2 or 3 representing the position of the point
     :param marker: a char representing the shape of the marker to use
     :param markersize: an int representing the size of the marker
     :param color: a string representing the color of the marker
     :return: Nothing
     """
-    plt.plot([pos[0]], [pos[1]], marker=marker, markersize=markersize, color=color)
+    if len(pos) == 2:
+        plt.plot([pos[0]], [pos[1]], marker=marker, markersize=markersize, color=color)
+
+    elif len(pos) == 3:
+        plt.plot([pos[0]], [pos[1]], [pos[2]], marker=marker, markersize=markersize, color=color)
+
+    else :
+        raise ValueError("The function draw_point can only draw a 2D or 3D point")
 
 
 def draw_segment(source, hit, red=True):
-    if red:
-        plt.plot([source[0], hit[0]], [source[1], hit[1]], 'ro-')
+
+    option = 'ro-' if red else 'bo-'
+
+    if len(source) == len(hit) and len(source) == 2:
+        plt.plot([source[0], hit[0]], [source[1], hit[1]], option)
+
+    elif len(source) == len(hit) and len(source) == 3:
+        plt.plot([source[0], hit[0]], [source[1], hit[1]], [source[2], hit[2]], option)
+
     else:
-        plt.plot([source[0], hit[0]], [source[1], hit[1]], 'bo-')
+        raise ValueError("The function draw_segment only supports points of same dimension (2 or 3)")
 
 
 # ==================== SIMULATION ====================
@@ -660,6 +787,7 @@ def simul_ray(room,
               init_energy,
               mic_pos,
               mic_radius,
+              scatter_coef,
               stop_condition = 'with_time',
               energy_thres=1.,
               time_thres = 0.3,  # seconds
@@ -673,6 +801,7 @@ def simul_ray(room,
     :param init_energy: the inital amount of energy of the ray
     :param mic_pos: a 2 dim array representing the position of the circular microphone
     :param mic_radius: the radius of the circular microphone (meters)
+    :param scatter_coef: the scattering coefficient of the walls
     :param stop_condition: string that can take 2 values :
             - 'with_time' so that the rays are stopped when they travelling time reaches the time_thres
             - 'with_energy' so that the rays are stopped when their energy reaches the energy_thres
@@ -708,9 +837,9 @@ def simul_ray(room,
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
 
         # Case where the ray arrives at the receiver
-        if intersects_circle(start, hit_point, mic_pos, mic_radius):
+        if intersects_mic(start, hit_point, mic_pos, mic_radius):
 
-            hit_point, distance = closest_intersection(start, hit_point, mic_pos, mic_radius)
+            hit_point, distance = mic_intersection(start, hit_point, mic_pos, mic_radius)
             energy = distance_attenuation(energy, distance)
             travel_time = update_travel_time(travel_time, distance, sound_speed)
 
@@ -737,8 +866,12 @@ def simul_ray(room,
         energy = wall_absorption(energy, wall)
 
         # Let's apply the scattering coefficient
-        energy_scat = energy * 0.1
-        energy -= energy_scat
+        if scatter_coef > 0:
+            energy_scat = energy * scatter_coef
+            energy -= energy_scat
+
+            # Add the scattered ray to the output (if there is no wall between hit_point and mic_pos)
+            output = output + scattering_ray(room, wall, hit_point, mic_pos, energy_scat, energy_thres, travel_time, time_thres, sound_speed, which=stop_condition)
 
         # Does the ray meet the stop_condition after being reflected by the wall ?
         # Note : In case of time stop condition, the ray will never be stopped there
@@ -768,6 +901,7 @@ def get_rir_rt(room,
                init_energy,
                mic_pos,
                mic_radius,
+               scatter_coef,
                stop_condition = 'with_time',
                energy_thres = 1.,
                sound_speed = 340.,
@@ -781,6 +915,7 @@ def get_rir_rt(room,
     :param init_energy: the inital amount of energy of the ray
     :param mic_pos: a 2 dim array representing the position of the circular microphone
     :param mic_radius: the radius of the circular microphone (meters)
+    :param scatter_coef: the scattering coefficient of the walls
     :param stop_condition: string that can take 2 values :
             - 'with_time' so that the rays are stopped when they travelling time reaches the time_thres
             - 'with_energy' so that the rays are stopped when their energy reaches the energy_thres
@@ -800,7 +935,11 @@ def get_rir_rt(room,
     if plot_rays:
         room.plot(img_order=1)
 
-    print("Set up done. Starting Ray Tracing")
+    str_scat = "(no scattering)"
+    if scatter_coef > 0:
+        str_scat = "(with scattering)"
+
+    print("Set up done. Starting Ray Tracing", str_scat)
     start_time = time.process_time()
 
     for index, angle in enumerate(angles):
@@ -816,6 +955,7 @@ def get_rir_rt(room,
                            init_energy,
                            mic_pos,
                            mic_radius,
+                             scatter_coef,
                            stop_condition=stop_condition,
                            energy_thres=energy_thres,
                            time_thres=time_thres,
@@ -847,7 +987,7 @@ def get_rir_rt(room,
         x = np.arange(len(ir)) / room.fs
         plt.figure()
         plt.plot(x, ir)
-        plt.title("RIR with " + str(nb_rays) + " rays.")
+        plt.title("RIR with " + str(nb_rays) + " rays, scattering coef=" + str(scatter_coef))
         plt.show()
 
     return ir
@@ -900,36 +1040,19 @@ room.add_source([1., 1.], signal=audio_anechoic)
 
 # ==================== MAIN ====================
 
-nb_rays = 500
+nb_rays = 600
+scatter_coef = 0.0
 init_energy = 1000
-ray_simul_time = 0.5
+ray_simul_time = 0.25
 
-rir = get_rir_rt(room, nb_rays, ray_simul_time, init_energy, mic_pos, mic_radius, plot_rays=False, plot_RIR=True)
+rir = get_rir_rt(room, nb_rays, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, plot_rays=False, plot_RIR=True)
 
 apply_rir(rir, audio_anechoic, result_name="result_"+str(nb_rays)+".wav")
 
 
-
-# s = time.process_time()
-# a = 2**3
-# print(time.process_time() - s)
+# center = [1,1,1]
+# radius = 0.7
+# start = [0.1,0,0]
+# end = [2,2,2]
 #
-# s = time.process_time()
-# a = 2*2*2
-# print(time.process_time() - s)
-
-# ======= PART WITH FRACTIONAL DELAY ========
-# fdl = pra.constants.get('frac_delay_length')
-# fdl2 = (fdl - 1) // 2  # Integer division
-# ir = np.zeros(int(time_thres*room.fs) + fdl)
-
-# for elem in log:
-#     time_ip = int(np.floor(elem[1]*room.fs)) + fdl2
-
-#     if time_ip > len(ir)-fdl2:
-#         continue
-#     time_fp = elem[1] - time_ip
-#     ir[time_ip - fdl2:time_ip + fdl2 + 1] += elem[2] * fractional_delay(time_fp)
-
-# ======= PART WITHOUT FRACTIONAL DELAY ========
-
+# print(mic_intersection(start, end, center, radius))
