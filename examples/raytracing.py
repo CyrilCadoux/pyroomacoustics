@@ -97,6 +97,9 @@ def substract(v1, v2):
 
     raise ValueError("Function substract(v1,v2) only supports vectors of same length (2 or 3).")
 
+
+
+
 def make_vector(start_point, end_point):
     """
     Computes the vector going from the starting point to the end point
@@ -210,6 +213,7 @@ def cross_product(u, v):
 
     return u[1]*v[2]-v[1]*u[2], v[0]*u[2] - u[0]*v[2], u[0]*v[1]-v[0]*u[1]
 
+
 # ==================== ALGO FUNCTIONS ====================
 
 
@@ -270,6 +274,35 @@ def same_wall(w1, w2):
     return c1[0][0] == c2[0][0] and c1[1][0] == c2[1][0] and c1[0][1] == c2[0][1] and c1[1][1] == c2[1][1]
 
 
+def get_intersected_walls(start, end, room, previous_wall):
+    """
+    This methode returns a list with all the walls the the [start, end] segment will intersect.
+    Except from the case where start is the source, start is the last hit point on a wall. We make sure that this previous
+    wall is not included in the output list
+    :param start: An array of length 2 or 3 representing the start of the segment
+    :param end: An array of length 2 or 3 representing the end of the segment
+    :param room: The room that is studied
+    :param previous_wall: The wall where the start is located. If start is the source (first iteration) then
+                            previous_wall is None
+    :return: a list containing all wall objects that are intersected by the segment
+    """
+
+    intersected_walls = []
+
+    # We collect the walls that are intersected and that are not the previous wall
+    for w in room.walls:
+
+        # Boolean conditions
+        different_than_previous = previous_wall is not None   and   not same_wall(previous_wall, w)
+        w_intersects_segment = w.intersects(start, end)[0]
+
+        # Candidate walls for first hit
+        if w_intersects_segment and (previous_wall is None or different_than_previous):
+            intersected_walls = intersected_walls + [w]
+
+    return intersected_walls
+
+
 def next_wall_hit(start, end, room, previous_wall):
     """
     Finds the next wall that will be hit by the ray (represented as a segment here) and outputs the hitting point.
@@ -286,18 +319,7 @@ def next_wall_hit(start, end, room, previous_wall):
                 - the wall that is going to be hit
     """
 
-    intersected_walls = []
-
-    # We collect the walls that are intersected and that are not the previous wall
-    for w in room.walls:
-
-        # Boolean conditions
-        different_than_previous = previous_wall is not None and not same_wall(previous_wall, w)
-        w_intersects_segment = w.intersects(start, end)[0]
-
-        # Candidate walls for first hit
-        if w_intersects_segment and (previous_wall is None or different_than_previous):
-            intersected_walls = intersected_walls + [w]
+    intersected_walls = get_intersected_walls(start, end, room, previous_wall)
 
     # If no wall has been intersected
     if len(intersected_walls) == 0:
@@ -414,9 +436,11 @@ def dist_line_point(start, end, point):
 
         return abs(point[1] - a*point[0] - b) / math.sqrt(a*a + 1)
 
-        # 3D case
-        if len(start) == len(end) and len(start) == len(point) and len(start) == 3:
-            return norm(cross_product(substract(point,start),substract(point,end))) / norm(substract(end,start))
+    # 3D case
+    if len(start) == len(end) and len(start) == len(point) and len(start) == 3:
+        return norm(cross_product(substract(point,start),substract(point,end))) / norm(substract(end,start))
+
+    raise ValueError("The function dist_line_point only supports arrays of the same size (2 or 3).")
 
 
 def intersects_circle(start, end, center, radius):
@@ -523,11 +547,13 @@ def update_travel_time(previous_travel_time, current_hop_length, speed):
     return previous_travel_time + current_hop_length / speed
 
 
-def air_absorption(previous_energy, distance_to_travel, coef):
-    return previous_energy - previous_energy*distance_to_travel*0.01
-#     if distance_to_travel == 0:
-#         return previous_energy
-#     return previous_energy/(4*PI*distance_to_travel)
+def distance_attenuation(previous_energy, distance_to_travel):
+
+    # Produces long reverb
+    #return previous_energy - previous_energy*distance_to_travel*0.01
+    if distance_to_travel == 0:
+        return previous_energy
+    return previous_energy/(distance_to_travel)
 
 
 def wall_absorption(previous_energy, wall):
@@ -555,6 +581,54 @@ def stop_ray (actual_energy, energy_thresh, actual_travel_time, time_thresh, whi
         raise ValueError("The third parameter should be 'with_energy' or 'with_time'.")
 
 
+def scattering_ray(room, last_wall,
+                   last_hit,
+                   mic_pos,
+                   scat_energy,
+                   energy_thresh,
+                   actual_travel_time,
+                   time_thresh,
+                   sound_speed,
+                   which='with_time',
+                   plot=False):
+    """
+    Trace a one-hop scattering ray from the last wall hit to the microphone
+    :param room: The room in which the ray propagates
+    :param last_wall: The wall object where last_hit is located
+    :param last_hit: An array of length 2 or 3 defining the last wall hit position
+    :param mic_pos: An array of length 2 or 3 defining the position of the microphone
+    :param scat_energy: The energy of the scattering ray
+    :param energy_thresh: The energy threshold of the ray
+    :param actual_travel_time: The cumulated travel time of the ray
+    :param time_thresh: The time threshold of the ray
+    :param sound_speed: The speed of sound
+    :param which: string that can take 2 values :
+            - 'with_time' so that the rays are stopped when they travelling time reaches the time_thres
+            - 'with_energy' so that the rays are stopped when their energy reaches the energy_thres
+    :param plot: a boolean defining if we must plot the scattered ray or not
+    :return: a 3 tuple (has_hit, travel_time, remaining_energy)
+                - has_hit is a boolean which is True iff the ray reached the microphone with an energy above energy_thres
+                - travel_time is the time it took the ray to go from the source to the microphone.
+                - remaining_energy is the amount of energy that the ray has left when it hits the microphone
+
+    """
+    intersects_no_wall = len(get_intersected_walls(last_hit, mic_pos, room, last_wall)) == 0
+
+    # In case the scattering way can reach the mic with a straight line
+    if intersects_no_wall:
+
+        hit_point, distance = closest_intersection(last_hit, mic_pos, mic_pos, mic_radius)
+        scat_energy = distance_attenuation(scat_energy, distance)
+        travel_time = update_travel_time(actual_travel_time, distance, sound_speed)
+
+        if not stop_ray(scat_energy, energy_thresh, travel_time, time_thresh, which=which):
+            if plot:
+                draw_segment(last_hit, hit_point, red=False)
+            return [[True, travel_time, scat_energy]]
+
+    return []
+
+
 # ==================== DRAWING FUNCTIONS ====================
 
 
@@ -570,8 +644,11 @@ def draw_point(pos,  marker='o', markersize=10, color="red" ):
     plt.plot([pos[0]], [pos[1]], marker=marker, markersize=markersize, color=color)
 
 
-def draw_segment(source, hit):
-    plt.plot([source[0], hit[0]], [source[1], hit[1]], 'ro-')
+def draw_segment(source, hit, red=True):
+    if red:
+        plt.plot([source[0], hit[0]], [source[1], hit[1]], 'ro-')
+    else:
+        plt.plot([source[0], hit[0]], [source[1], hit[1]], 'bo-')
 
 
 # ==================== SIMULATION ====================
@@ -587,7 +664,6 @@ def simul_ray(room,
               energy_thres=1.,
               time_thres = 0.3,  # seconds
               sound_speed=340.,
-              air_absorb_coef=0.15,
               plot = False):
     """
     Simulate the evolution a ray emitted by the source with an initial angle and an inital energy in a room.
@@ -603,7 +679,6 @@ def simul_ray(room,
     :param energy_thres: the energy threshold. If the ray's energy goes below this value before hitting the microphone, then the ray disappears
     :param time_thres: the time threshold. If the travelling time of the ray exceeds this value, then the ray disappears
     :param sound_speed: the speed of sound (meters/sec)
-    :param air_absorb_coef: the air absorption coefficient
     :param plot : a boolean that controls if the ray is going to be plotted or not
                 - IMPORTANT : if plot=True then the function room.plot() must be called before simul_ray, and the function plt.plot() must be called after simul_ray
     :return: a 3 tuple (has_hit, travel_time, remaining_energy)
@@ -613,14 +688,6 @@ def simul_ray(room,
                 - IMPORTANT : if has_hit is False, then travel_time and remaining_energy are None
     """
 
-    def failure():
-        """
-        Returns the correct tuple when the ray does not hit the microphone
-        :return: [False, None, None]
-        """
-
-        return [False, None, None]
-
     start = room.sources[0].position
     angle = init_angle
     energy = init_energy  # dB
@@ -628,64 +695,71 @@ def simul_ray(room,
     wall = None
     travel_time = 0
 
+    # To be filled with triples (Bool, time, energy) for the main ray and all scattered rays that will hit the receiver.
+    output = []
+
     if plot:
         draw_point(start, color="green")
 
 
     while True:
 
-
         end = compute_segment_end(start, ray_segment_length, angle)
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
 
+        # Case where the ray arrives at the receiver
         if intersects_circle(start, hit_point, mic_pos, mic_radius):
 
-
             hit_point, distance = closest_intersection(start, hit_point, mic_pos, mic_radius)
-            energy = air_absorption(energy, distance, air_absorb_coef)
+            energy = distance_attenuation(energy, distance)
             travel_time = update_travel_time(travel_time, distance, sound_speed)
 
             if not stop_ray(energy, energy_thres, travel_time, time_thres, which=stop_condition) :
                 if plot:
                     draw_segment(start, hit_point)
                     draw_point(hit_point, markersize=3, color='purple')
-                return [True, travel_time, energy]
+                output = output + [[True, travel_time, energy]]
 
-            return failure()
+            break
 
         # Can the ray reach the next hit_point on 'wall' ?
-        energy = air_absorption(energy, distance, air_absorb_coef)
+        energy = distance_attenuation(energy, distance)
         travel_time = update_travel_time(travel_time, distance, sound_speed)
-
 
         # No it cannot
         if stop_ray(energy, energy_thres, travel_time, time_thres, which=stop_condition):
             if plot:
                 draw_point(start, marker='o', color='blue')
                 draw_point(hit_point, marker = 'x', color='blue')
-            return failure()
+            break
 
-        # Does the ray have enough energy to be reflected by the wall ?
+        # Energy after wall hit
         energy = wall_absorption(energy, wall)
 
+        # Let's apply the scattering coefficient
+        energy_scat = energy * 0.1
+        energy -= energy_scat
+
+        # Does the ray meet the stop_condition after being reflected by the wall ?
+        # Note : In case of time stop condition, the ray will never be stopped there
 
         # No it does not
         if stop_ray(energy, energy_thres, travel_time, time_thres, which=stop_condition):
             if plot:
                 draw_segment(start, hit_point)
                 draw_point(hit_point, marker='x', color='green')
-            return failure()
+            break
 
 
         if plot:
             draw_segment(start, hit_point)
 
         # Update for next rebound
-
         angle = compute_new_angle(start, hit_point, wall.normal, angle)
-
         # We know that the new starting point is the previous hit point
         start = hit_point.copy()
+
+    return output
 
 
 def get_rir_rt(room,
@@ -697,7 +771,6 @@ def get_rir_rt(room,
                stop_condition = 'with_time',
                energy_thres = 1.,
                sound_speed = 340.,
-               air_absorb_coef=0.15,
                plot_RIR=False,
                plot_rays=False):
 
@@ -713,7 +786,6 @@ def get_rir_rt(room,
             - 'with_energy' so that the rays are stopped when their energy reaches the energy_thres
     :param energy_thres: the energy threshold. If the ray's energy goes below this value before hitting the microphone, then the ray disappears
     :param sound_speed: the speed of sound (meters/sec)
-    :param air_absorb_coef: the air absorption coefficient
     :param plot_RIR : the RIR will be plotted only if this boolean is True
     :param plot_rays : a boolean that controls if the ray is going to be plotted or not
                 - IMPORTANT : if plot_rays=True then the function room.plot() must be called before simul_ray, and the function plt.plot() must be called after simul_ray
@@ -734,11 +806,11 @@ def get_rir_rt(room,
     for index, angle in enumerate(angles):
 
         # Print the status
-        if index % (nb_rays // 100) == 0:
+        if index % ((nb_rays // 100)+1) == 0:
             print("\r", 100*index//nb_rays, "%", end='', flush=True)
 
         # Trace 1 ray
-        result = simul_ray(room,
+        log = log+ simul_ray(room,
                            max_dist,
                            angle,
                            init_energy,
@@ -748,16 +820,12 @@ def get_rir_rt(room,
                            energy_thres=energy_thres,
                            time_thres=time_thres,
                            sound_speed=sound_speed,
-                           air_absorb_coef=air_absorb_coef,
                            plot=plot_rays)
-
-        # If the ray reached the mic, store info
-        if result[0]:
-            log = log + [result]
 
     print("\rDone.")
     print("Running time for", nb_rays, "rays:", time.process_time() - start_time)
 
+    print("log length =", len(log))
     if plot_rays:
         plt.show()
 
@@ -815,16 +883,16 @@ def one():
 fs0, audio_anechoic = wavfile.read('samples/guitar_16k.wav')
 
 # Add the circular microphone
-mic_pos = np.array([1, 2.])
+mic_pos = np.array([5, 8])
 mic_radius = 0.05  # meters
 
 max_order = 1
 
 # Store the corners of the room floor in an array
-pol = 3 * np.array([[0.1, 0.], [0.1, 1], [1, 1], [1, 0]]).T
+pol = 3 * np.array([[0., 0.], [0., 3], [2, 3], [2, 0]]).T
 
 # Create the room from its corners
-room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.05)
+room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.01)
 
 # Add a source somewhere in the room
 room.add_source([1., 1.], signal=audio_anechoic)
@@ -832,11 +900,11 @@ room.add_source([1., 1.], signal=audio_anechoic)
 
 # ==================== MAIN ====================
 
-nb_rays = 10000
+nb_rays = 500
 init_energy = 1000
 ray_simul_time = 0.5
 
-rir = get_rir_rt(room, nb_rays, ray_simul_time, init_energy, mic_pos, mic_radius, plot_RIR=True)
+rir = get_rir_rt(room, nb_rays, ray_simul_time, init_energy, mic_pos, mic_radius, plot_rays=False, plot_RIR=True)
 
 apply_rir(rir, audio_anechoic, result_name="result_"+str(nb_rays)+".wav")
 
