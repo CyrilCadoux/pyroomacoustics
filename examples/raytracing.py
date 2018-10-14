@@ -98,7 +98,6 @@ def scale(v, k):
     raise ValueError("Function scalar_prod(v,k) only supports vector of length 2 or 3.")
 
 
-
 def substract(v1, v2):
     """
     Computes the substraction of 2 vectors
@@ -130,7 +129,6 @@ def add(v1, v2):
         return v1[0]+v2[0], v1[1]+v2[1], v1[2]+v2[2]
 
     raise ValueError("Function add(v1,v2) only supports vectors of same length (2 or 3).")
-
 
 
 def make_vector(start_point, end_point):
@@ -310,9 +308,24 @@ def same_wall(w1, w2):
     :param w2: the second wall
     :return: True if they are the same, False otherwise
     """
-    return sum(sum(abs(w1.corners-w2.corners))) == 0
 
-    #return c1[0][0] == c2[0][0] and c1[1][0] == c2[1][0] and c1[0][1] == c2[0][1] and c1[1][1] == c2[1][1]
+    if w1 is None:
+        return False
+
+    c1 = w1.corners
+    c2 = w2.corners
+
+    # 2D
+    if len(c1) == 2:
+        return c1[0][0] == c2[0][0] and c1[1][0] == c2[1][0] and c1[0][1] == c2[0][1] and c1[1][1] == c2[1][1]
+
+
+    # 3D
+    x_ok = c1[0][0] == c2[0][0] and c1[0][1] == c2[0][1] and c1[0][2] == c2[0][2] and c1[0][3] == c2[0][3]
+    y_ok = c1[1][0] == c2[1][0] and c1[1][1] == c2[1][1] and c1[1][2] == c2[1][2] and c1[1][3] == c2[1][3]
+    z_ok = c1[2][0] == c2[2][0] and c1[2][1] == c2[2][1] and c1[2][2] == c2[2][2] and c1[2][3] == c2[2][3]
+
+    return x_ok and y_ok and z_ok
 
 
 def get_intersected_walls(start, end, room, previous_wall):
@@ -359,24 +372,24 @@ def next_wall_hit(start, end, room, previous_wall):
                 - the wall that is going to be hit
     """
 
-    intersected_walls = get_intersected_walls(start, end, room, previous_wall)
+    intersected_w = get_intersected_walls(start, end, room, previous_wall)
 
     # If no wall has been intersected
-    if len(intersected_walls) == 0:
+    if len(intersected_w) == 0:
         raise ValueError("No wall has been intersected")
 
     # If only 1 wall is intersected
-    if len(intersected_walls) == 1:
-        hitting_point = intersected_walls[0].intersection(start, end)[0]
-        return hitting_point, dist(hitting_point, start), intersected_walls[0]
+    if len(intersected_w) == 1:
+        intersection = intersected_w[0].intersection(start, end)[0]
+        return intersection, dist(intersection, start), intersected_w[0]
 
     # If we are here it means that several walls have been intersected (non shoebox room)
-    intersection_points = [w.intersection(start, end)[0] for w in intersected_walls]
-    dist_from_start = [dist(start, p) for p in intersection_points]
+    intersections = [w.intersection(start, end)[0] for w in intersected_w]
+    dist_from_start = [dist(start, p) for p in intersections]
 
     # Returns the closest point to 'start', ie. the one corresponding to the correct wall
     correct_wall = np.argmin(dist_from_start)
-    return intersection_points[correct_wall], dist_from_start[correct_wall], intersected_walls[correct_wall]
+    return intersections[correct_wall], dist_from_start[correct_wall], intersected_w[correct_wall]
 
 
 def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
@@ -491,12 +504,12 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
     if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 3:
 
         # When the ray hits roof or floor, phi remains the same and new_theta = PI-theta
-        if abs(wall_normal[2]) == 1 :
+        if abs(wall_normal[2]) == 1:
             return phi, (PI-theta)
 
         # When the ray hits a wall, phi is computed as in 2D case, and theta remains the same
         # So we just compute phi with the [x,y] coordinate of each vector
-        return  compute_2D_phi(start[:-1], hit_point[:-1], wall_normal[:-1], phi), theta
+        return compute_2D_phi(start[:-1], hit_point[:-1], wall_normal[:-1], phi), theta
 
     raise ValueError("The function compute_new_angle only supports vectors and points of same dimension (2 or 3)")
 
@@ -685,7 +698,8 @@ def distance_attenuation(previous_energy, distance_to_travel):
     #return previous_energy - previous_energy*distance_to_travel*0.01
     if distance_to_travel == 0:
         return previous_energy
-    return previous_energy/(distance_to_travel)
+
+    return previous_energy/(1+distance_to_travel)
 
 
 def wall_absorption(previous_energy, wall):
@@ -844,7 +858,7 @@ def simul_ray(room,
     start = room.sources[0].position
     phi = init_phi
     theta = init_theta
-    energy = init_energy  # dB
+    energy = init_energy
     end = None
     wall = None
     travel_time = 0
@@ -912,8 +926,10 @@ def simul_ray(room,
         if plot:
             draw_segment(start, hit_point)
 
-        # Update for next rebound
+        # ==== Update for next rebound ====
+
         phi,theta = compute_new_angle(start, hit_point, wall.normal, phi, theta=theta)
+
         # We know that the new starting point is the previous hit point
         start = hit_point.copy()
 
@@ -1056,30 +1072,45 @@ size_factor = 3.
 
 fs0, audio_anechoic = wavfile.read('samples/guitar_16k.wav')
 
-# Add the circular microphone
-mic_pos = np.array([0.7, 0.4, 0.8])
-mic_radius = 0.05  # meters
-
-max_order = 1
-
-# Store the corners of the room floor in an array
 pol = size_factor * np.array([[0., 0.], [0., 1], [1., 1.], [1., 0]]).T
+max_order = 1
+absor = 0.1
 
-# Create the room from its corners
-room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.1)
-room.extrude(size_factor)
+_3D = True
 
-# Add a source somewhere in the room
-room.add_source([0.5, 0.2, 0.1], signal=audio_anechoic)
+if _3D:
+
+    # Add the circular microphone
+    mic_pos = np.array([0.7, 0.4, 0.8])
+    mic_radius = 0.05  # meters
+
+    # Create the room from its corners
+    room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
+    room.extrude(3)
+
+    # Add a source somewhere in the room
+    room.add_source([0.5, 0.2, 0.7], signal=audio_anechoic)
+
+else:
+
+    # Add the circular microphone
+    mic_pos = np.array([0.7, 0.4])
+    mic_radius = 0.05  # meters
+
+    # Create the room from its corners
+    room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
+
+    # Add a source somewhere in the room
+    room.add_source([0.5, 0.2], signal=audio_anechoic)
 
 
 # ==================== MAIN ====================
 
 nb_phis = 100
-nb_thetas = 10
-scatter_coef = 0.1
+nb_thetas = 25
+scatter_coef = 0.01
 init_energy = 1000
-ray_simul_time = 0.25
+ray_simul_time = 0.1
 
 rir = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
