@@ -310,11 +310,9 @@ def same_wall(w1, w2):
     :param w2: the second wall
     :return: True if they are the same, False otherwise
     """
+    return sum(sum(abs(w1.corners-w2.corners))) == 0
 
-    c1 = w1.corners
-    c2 = w2.corners
-
-    return c1[0][0] == c2[0][0] and c1[1][0] == c2[1][0] and c1[0][1] == c2[0][1] and c1[1][1] == c2[1][1]
+    #return c1[0][0] == c2[0][0] and c1[1][0] == c2[1][0] and c1[0][1] == c2[0][1] and c1[1][1] == c2[1][1]
 
 
 def get_intersected_walls(start, end, room, previous_wall):
@@ -338,7 +336,6 @@ def get_intersected_walls(start, end, room, previous_wall):
         # Boolean conditions
         different_than_previous = previous_wall is not None   and   not same_wall(previous_wall, w)
         w_intersects_segment = w.intersects(start, end)[0]
-
         # Candidate walls for first hit
         if w_intersects_segment and (previous_wall is None or different_than_previous):
             intersected_walls = intersected_walls + [w]
@@ -346,16 +343,13 @@ def get_intersected_walls(start, end, room, previous_wall):
     return intersected_walls
 
 
-
-
-
 def next_wall_hit(start, end, room, previous_wall):
     """
     Finds the next wall that will be hit by the ray (represented as a segment here) and outputs the hitting point.
     For non-shoebox rooms, there may be several walls intersected by the ray.
     In this case we compute the intersection points for all those walls and only keep the closest point to the start.
-    :param start: a 2 dim array representing the starting point of the ray
-    :param end: a 2 dim array representing the end point of the ray. Recall that thanks to get_max_distance, we are sure
+    :param start: an array of length 2 or 3 representing the starting point of the ray
+    :param end: an array of length 2 or 3 representing the end point of the ray. Recall that thanks to get_max_distance, we are sure
                 that there is at least one wall between start and end.
     :param room: the room in which the ray propagates
     :param previous_wall : a wall object representing the last wall that the ray has hit.
@@ -385,7 +379,7 @@ def next_wall_hit(start, end, room, previous_wall):
     return intersection_points[correct_wall], dist_from_start[correct_wall], intersected_walls[correct_wall]
 
 
-def compute_new_angle(start, hit_point, wall_normal, phi, theta=0.):
+def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
     """
     Computes the new directional angle of the ray when the latter hits a wall
     :param start: an array of length 2 or 3 representing the point that originated the ray before the hit.
@@ -398,12 +392,19 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=0.):
                 when theta belongs to [0 ; pi/2] the segment goes upward
                 when theta belongs to [pi/2 ; pi] the segment goes downward
     :return: The output is different wether the room is 2D or 3D:
-                - 2D : a new angle phi(rad) that gives its new 2D direction to the ray
+                - 2D : a new angle [phi, PI/2] (rad) that gives its new 2D direction to the ray (theta does not matter)
                 - 3D : a tuple [phi, theta] that gives its new 3D direction to the ray
     """
 
-    # 2D case
-    if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 2:
+    def compute_2D_phi(start, hit_point, wall_normal, phi):
+        """
+        Computes the new 2D angle knowing the previous 2D angle
+        :param start: an array of length 2 defining the point that originated the ray before the hit
+        :param hit_point: an array of length 2 defining the intersection point between the ray and the wall
+        :param wall_normal: an array of length 2 defining the wall normal
+        :param phi: the previous angle (rad) defining the direction of the ray with respect to the [1,0] vector
+        :return: a new angle phi (rad) that gives its new 2D direction to the ray
+        """
 
         # The reference vector to compute the 2D angles
         ref_vec = [1, 0]
@@ -418,31 +419,30 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=0.):
         '''
         =================
         Tricky part here :
-        
+
         There is the extreme case where the normal is purely vertical or horizontal.
             (1) If the normal is vertical, the wall is horizontal and thus we return -alpha
             (2) If the normal is horizontal, the wall is vertical and thus we return pi-alpha
-        
+
         Otherwise, here are the cases where we should work with the inverted version of the wall_normal,
         since the given normal points to the 'wrong' side of the wall :
             (1) the angle between the reverse incident ray and the normal should be less than pi/2
-        
+
         =================
         '''
 
         # When normal is vertical, ie the wall is horizontal
         if dot([1, 0], wall_normal) == 0:
-            return -phi
+            return - phi
 
         # When normal is horizontal, ie the wall is vertical
         if dot([0, 1], wall_normal) == 0:
-
             return PI - phi
 
         # We use this reverse version to see if the normal points 'inside' of 'outside' the room
         reversed_incident = reverse_vector(incident)
 
-        if angle_between(reversed_incident, wall_normal) > PI/2:
+        if angle_between(reversed_incident, wall_normal) > PI / 2:
             wall_normal = reverse_vector(wall_normal)
             qn = get_quadrant(wall_normal)
 
@@ -450,34 +450,53 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=0.):
         beta = angle_between(reversed_incident, wall_normal)
         n_alpha = angle_between(ref_vec, wall_normal)
 
-        if qi == 1 and qn == 2: result = n_alpha - beta
-        elif qi == 1 and qn == 3: result = -n_alpha + beta
-        elif qi == 1 and qn == 4: result = -n_alpha + beta
+        if qi == 1 and qn == 2:
+            result = n_alpha - beta
+        elif qi == 1 and qn == 3:
+            result = -n_alpha + beta
+        elif qi == 1 and qn == 4:
+            result = -n_alpha + beta
 
-        elif qi == 2 and qn == 1: result = n_alpha + beta
-        elif qi == 2 and qn == 3: result = -n_alpha - beta
-        elif qi == 2 and qn == 4: result = -n_alpha - beta
+        elif qi == 2 and qn == 1:
+            result = n_alpha + beta
+        elif qi == 2 and qn == 3:
+            result = -n_alpha - beta
+        elif qi == 2 and qn == 4:
+            result = -n_alpha - beta
 
-        elif qi == 3 and qn == 1: result = n_alpha + beta
-        elif qi == 3 and qn == 2: result = n_alpha + beta
-        elif qi == 3 and qn == 4: result = -n_alpha - beta
+        elif qi == 3 and qn == 1:
+            result = n_alpha + beta
+        elif qi == 3 and qn == 2:
+            result = n_alpha + beta
+        elif qi == 3 and qn == 4:
+            result = -n_alpha - beta
 
-        elif qi == 4 and qn == 1: result = n_alpha - beta
-        elif qi == 4 and qn == 2: result = n_alpha - beta
-        else: result = -n_alpha + beta
+        elif qi == 4 and qn == 1:
+            result = n_alpha - beta
+        elif qi == 4 and qn == 2:
+            result = n_alpha - beta
+        else:
+            result = -n_alpha + beta
 
         return result
 
-    # 3D case :
-    # Much easier since the floor and the roof are parallele to the (x,y) plane
-    # Much easier since the walls are always perpendicular to the (x,y) plane
+    # 2D case
+    if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 2:
+        return compute_2D_phi(start, hit_point, wall_normal, phi), theta
 
-    # When the ray hits roof or floor, phi remains the same and new_theta = PI-theta
-    # When the ray hits a wall, phi is computed as in 2D case, and theta remains the same
+    # 3D case :
+    # Not difficult since the floor and the roof are parallele to the (x,y) plane
+    # Not difficult since the walls are always perpendicular to the (x,y) plane
 
     if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 3:
 
-        return [0,1]
+        # When the ray hits roof or floor, phi remains the same and new_theta = PI-theta
+        if abs(wall_normal[2]) == 1 :
+            return phi, (PI-theta)
+
+        # When the ray hits a wall, phi is computed as in 2D case, and theta remains the same
+        # So we just compute phi with the [x,y] coordinate of each vector
+        return  compute_2D_phi(start[:-1], hit_point[:-1], wall_normal[:-1], phi), theta
 
     raise ValueError("The function compute_new_angle only supports vectors and points of same dimension (2 or 3)")
 
@@ -783,11 +802,12 @@ def draw_segment(source, hit, red=True):
 
 def simul_ray(room,
               ray_segment_length,
-              init_angle,
+              init_phi,
               init_energy,
               mic_pos,
               mic_radius,
               scatter_coef,
+              init_theta = PI/2,
               stop_condition = 'with_time',
               energy_thres=1.,
               time_thres = 0.3,  # seconds
@@ -797,11 +817,15 @@ def simul_ray(room,
     Simulate the evolution a ray emitted by the source with an initial angle and an inital energy in a room.
     :param room: a room object in which the ray propagates
     :param ray_segment_length: the length of the segment that ensures that a wall will be intersected by the ray
-    :param init_angle: the angle (rad) with respect to the vector [1, 0] which gives its first direction to the ray
+    :param init_phi: the angle (rad) with respect to the vector [1, 0] which gives its first 2D direction to the ray
     :param init_energy: the inital amount of energy of the ray
     :param mic_pos: a 2 dim array representing the position of the circular microphone
     :param mic_radius: the radius of the circular microphone (meters)
     :param scatter_coef: the scattering coefficient of the walls
+    :param init_theta: the angle (rad) which gives its first "elevation" to the ray
+                        - if init_theta = 0 rad : the ray goes vertically up
+                        - if init_theta = pi/2 : the ray is parallele to the (x,y) plane
+                        - if init_theta = pi : the ray goes vertically down
     :param stop_condition: string that can take 2 values :
             - 'with_time' so that the rays are stopped when they travelling time reaches the time_thres
             - 'with_energy' so that the rays are stopped when their energy reaches the energy_thres
@@ -818,7 +842,8 @@ def simul_ray(room,
     """
 
     start = room.sources[0].position
-    angle = init_angle
+    phi = init_phi
+    theta = init_theta
     energy = init_energy  # dB
     end = None
     wall = None
@@ -833,7 +858,7 @@ def simul_ray(room,
 
     while True:
 
-        end = compute_segment_end(start, ray_segment_length, angle)
+        end = compute_segment_end(start, ray_segment_length, phi, theta=theta)
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
 
         # Case where the ray arrives at the receiver
@@ -888,7 +913,7 @@ def simul_ray(room,
             draw_segment(start, hit_point)
 
         # Update for next rebound
-        angle = compute_new_angle(start, hit_point, wall.normal, angle)
+        phi,theta = compute_new_angle(start, hit_point, wall.normal, phi, theta=theta)
         # We know that the new starting point is the previous hit point
         start = hit_point.copy()
 
@@ -896,12 +921,13 @@ def simul_ray(room,
 
 
 def get_rir_rt(room,
-               nb_rays,
+               nb_phis,
                time_thres,
                init_energy,
                mic_pos,
                mic_radius,
                scatter_coef,
+               nb_thetas=1,
                stop_condition = 'with_time',
                energy_thres = 1.,
                sound_speed = 340.,
@@ -910,12 +936,13 @@ def get_rir_rt(room,
 
     """
     :param room: a room object in which the ray propagates
-    :param nb_rays: the number of rays used to compute the RIR
+    :param nb_phis: the number of different 2D directions used to compute the RIR
     :param time_thres: the time threshold. If the travelling time of the ray exceeds this value, then the ray disappears
     :param init_energy: the inital amount of energy of the ray
     :param mic_pos: a 2 dim array representing the position of the circular microphone
     :param mic_radius: the radius of the circular microphone (meters)
     :param scatter_coef: the scattering coefficient of the walls
+    :param nb_thetas: the number of different elevation per flat angle phi
     :param stop_condition: string that can take 2 values :
             - 'with_time' so that the rays are stopped when they travelling time reaches the time_thres
             - 'with_energy' so that the rays are stopped when their energy reaches the energy_thres
@@ -929,7 +956,15 @@ def get_rir_rt(room,
 
     # To store info about rays that reach the mic
     log = []
-    angles = np.linspace(1, 2 * PI, nb_rays)
+    phis = np.linspace(1, 2 * PI, nb_phis)
+
+    # For 3D rooms
+    thetas = np.linspace(0, PI, nb_thetas)
+
+    if room.dim == 2:
+        thetas = [PI/2]
+
+    nb_rays = nb_thetas*nb_phis
     max_dist = get_max_distance(room)
 
     if plot_rays:
@@ -942,25 +977,28 @@ def get_rir_rt(room,
     print("Set up done. Starting Ray Tracing", str_scat)
     start_time = time.process_time()
 
-    for index, angle in enumerate(angles):
+    for index, phi in enumerate(phis):
 
         # Print the status
-        if index % ((nb_rays // 100)+1) == 0:
-            print("\r", 100*index//nb_rays, "%", end='', flush=True)
+        if index % ((nb_phis // 100) + 1) == 0:
+            print("\r", 100 * index // nb_phis, "%", end='', flush=True)
 
-        # Trace 1 ray
-        log = log+ simul_ray(room,
-                           max_dist,
-                           angle,
-                           init_energy,
-                           mic_pos,
-                           mic_radius,
-                             scatter_coef,
-                           stop_condition=stop_condition,
-                           energy_thres=energy_thres,
-                           time_thres=time_thres,
-                           sound_speed=sound_speed,
-                           plot=plot_rays)
+        for theta in thetas:
+
+            # Trace 1 ray
+            log = log+ simul_ray(room,
+                               max_dist,
+                               phi,
+                               init_energy,
+                               mic_pos,
+                               mic_radius,
+                               scatter_coef,
+                               init_theta= theta,
+                               stop_condition=stop_condition,
+                               energy_thres=energy_thres,
+                               time_thres=time_thres,
+                               sound_speed=sound_speed,
+                               plot=plot_rays)
 
     print("\rDone.")
     print("Running time for", nb_rays, "rays:", time.process_time() - start_time)
@@ -1010,44 +1048,42 @@ def apply_rir(rir, wav_data, fs=16000, result_name="result.wav"):
     result -= np.mean(result)
     wavfile.write(result_name, rate=fs, data=result.astype('float32'))
 
-def one():
-    return 1
-
-
-
 
 # ==================== ROOM SETUP ====================
 
 
+size_factor = 3.
 
 fs0, audio_anechoic = wavfile.read('samples/guitar_16k.wav')
 
 # Add the circular microphone
-mic_pos = np.array([5, 8])
+mic_pos = np.array([0.7, 0.4, 0.8])
 mic_radius = 0.05  # meters
 
 max_order = 1
 
 # Store the corners of the room floor in an array
-pol = 3 * np.array([[0., 0.], [0., 3], [2, 3], [2, 0]]).T
+pol = size_factor * np.array([[0., 0.], [0., 1], [1., 1.], [1., 0]]).T
 
 # Create the room from its corners
-room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.01)
+room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=0.1)
+room.extrude(size_factor)
 
 # Add a source somewhere in the room
-room.add_source([1., 1.], signal=audio_anechoic)
+room.add_source([0.5, 0.2, 0.1], signal=audio_anechoic)
 
 
 # ==================== MAIN ====================
 
-nb_rays = 600
-scatter_coef = 0.0
+nb_phis = 100
+nb_thetas = 10
+scatter_coef = 0.1
 init_energy = 1000
 ray_simul_time = 0.25
 
-rir = get_rir_rt(room, nb_rays, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, plot_rays=False, plot_RIR=True)
+rir = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir, audio_anechoic, result_name="result_"+str(nb_rays)+".wav")
+apply_rir(rir, audio_anechoic, result_name="result_"+str(nb_thetas*nb_phis)+".wav")
 
 
 # center = [1,1,1]
