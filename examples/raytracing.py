@@ -9,6 +9,8 @@ import pyroomacoustics as pra
 import math
 import scipy
 from scipy.io import wavfile
+import os
+from joblib import Parallel, delayed
 
 from pyroomacoustics.utilities import fractional_delay
 
@@ -692,14 +694,32 @@ def update_travel_time(previous_travel_time, current_hop_length, speed):
     return previous_travel_time + current_hop_length / speed
 
 
-def distance_attenuation(previous_energy, distance_to_travel):
+def distance_attenuation(previous_energy, new_dist, total_dist):
+    """
+    Computes the distance attenuation of the sound
+    :param previous_energy: The energy the ray had at its last hit point
+    :param new_dist: the distance that the ray has to travel between the last hit point and its next hit point X
+    :param total_dist: the total distance travelled by the ray from the beginning to its next hit_point X
+    :return: the new energy of the ray
+    """
 
     # Produces long reverb
     #return previous_energy - previous_energy*distance_to_travel*0.01
-    if distance_to_travel == 0:
-        return previous_energy
 
-    return previous_energy/(1+distance_to_travel)
+    # If it is the first hop, total_dist- new_dist == 0
+    # if total_dist - new_dist == 0:
+    #     return previous_energy/(1+total_dist)
+    #
+    # return previous_energy * (total_dist-new_dist) / (total_dist)
+
+
+    # The ray losses ratio procent of energy per meter
+
+    #ratio = new_dist/total_dist if total_dist != new_dist else 0
+
+    # Produces a nice reverb
+    ratio = new_dist/100.
+    return previous_energy*(1-ratio)
 
 
 def wall_absorption(previous_energy, wall):
@@ -727,6 +747,32 @@ def stop_ray (actual_energy, energy_thresh, actual_travel_time, time_thresh, whi
         raise ValueError("The third parameter should be 'with_energy' or 'with_time'.")
 
 
+def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
+    """
+    Computes the scattering energy
+    :param energy: The energy of the ray after its rebound at hit_point
+    :param scatter_coef: The scattering coefficient
+    :param wall: the wall where hit_point is located
+    :param start: an array of length 2 or 3 defining the previous hit point of the ray
+    :param hit_point: an array of length 2 or 3 defining the actual hit_point of the ray
+    :param mic_pos: an array of length 2 or 3 defining the center of the microphone
+    :return: the amount of energy of the scattering ray, which depends on the angle between
+            the [hit_point, mic_pos] vector and the wall normal
+    """
+
+    # First we need to check that the wall normal is pointing inside the room
+    # Recall the angle between the reversed incident vector and the normal is less than pi/2
+    # in the case where the normal points inside the room
+    n = wall.normal
+    if angle_between(n, make_vector(hit_point, start)) > PI/2:
+        n = reverse_vector(n)
+
+    # Now we must compute the angle between the normal and the vector hit_point -> mic_pos
+    hit_to_mic = make_vector(hit_point, mic_pos)
+
+    return energy * scatter_coef * np.cos(angle_between(n,hit_to_mic))
+
+
 def scattering_ray(room,
                    last_wall,
                    last_hit,
@@ -735,6 +781,7 @@ def scattering_ray(room,
                    energy_thresh,
                    actual_travel_time,
                    time_thresh,
+                   total_dist,
                    sound_speed,
                    which='with_time',
                    plot=False):
@@ -765,15 +812,19 @@ def scattering_ray(room,
     if intersects_no_wall:
 
         hit_point, distance = mic_intersection(last_hit, mic_pos, mic_pos, mic_radius)
-        scat_energy = distance_attenuation(scat_energy, distance)
+        total_dist += distance
+        scat_energy = distance_attenuation(scat_energy, distance, total_dist)
         travel_time = update_travel_time(actual_travel_time, distance, sound_speed)
 
         if not stop_ray(scat_energy, energy_thresh, travel_time, time_thresh, which=which):
             if plot:
                 draw_segment(last_hit, hit_point, red=False)
+
+            # Rajouter des [] si on parallelise pas
             return [[True, travel_time, scat_energy]]
 
     return []
+
 
 # ==================== DRAWING FUNCTIONS ====================
 
@@ -861,7 +912,8 @@ def simul_ray(room,
     energy = init_energy
     end = None
     wall = None
-    travel_time = 0
+    travel_time = 0.
+    total_dist = 0.
 
     # To be filled with triples (Bool, time, energy) for the main ray and all scattered rays that will hit the receiver.
     output = []
@@ -879,19 +931,23 @@ def simul_ray(room,
         if intersects_mic(start, hit_point, mic_pos, mic_radius):
 
             hit_point, distance = mic_intersection(start, hit_point, mic_pos, mic_radius)
-            energy = distance_attenuation(energy, distance)
+            total_dist += distance
+            energy = distance_attenuation(energy, distance, total_dist)
             travel_time = update_travel_time(travel_time, distance, sound_speed)
 
             if not stop_ray(energy, energy_thres, travel_time, time_thres, which=stop_condition) :
                 if plot:
                     draw_segment(start, hit_point)
                     draw_point(hit_point, markersize=3, color='purple')
+
+                # Ajouter des brackets si on parallelise pas
                 output = output + [[True, travel_time, energy]]
 
             break
 
         # Can the ray reach the next hit_point on 'wall' ?
-        energy = distance_attenuation(energy, distance)
+        total_dist += distance
+        energy = distance_attenuation(energy, distance, total_dist)
         travel_time = update_travel_time(travel_time, distance, sound_speed)
 
         # No it cannot
@@ -906,11 +962,11 @@ def simul_ray(room,
 
         # Let's apply the scattering coefficient
         if scatter_coef > 0:
-            energy_scat = energy * scatter_coef
+            energy_scat = compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos)
             energy -= energy_scat
 
             # Add the scattered ray to the output (if there is no wall between hit_point and mic_pos)
-            output = output + scattering_ray(room, wall, hit_point, mic_pos, energy_scat, energy_thres, travel_time, time_thres, sound_speed, which=stop_condition)
+            output = output + scattering_ray(room, wall, hit_point, mic_pos, energy_scat, energy_thres, travel_time, time_thres, total_dist, sound_speed, which=stop_condition)
 
         # Does the ray meet the stop_condition after being reflected by the wall ?
         # Note : In case of time stop condition, the ray will never be stopped there
@@ -991,7 +1047,7 @@ def get_rir_rt(room,
         str_scat = "(with scattering)"
 
     print("Set up done. Starting Ray Tracing", str_scat)
-    start_time = time.process_time()
+    start_time = time.time()
 
     for index, phi in enumerate(phis):
 
@@ -999,25 +1055,41 @@ def get_rir_rt(room,
         if index % ((nb_phis // 100) + 1) == 0:
             print("\r", 100 * index // nb_phis, "%", end='', flush=True)
 
-        for theta in thetas:
+        # for theta in thetas:
+        #
+        #     # Trace 1 ray
+        #     log = log+ simul_ray(room,
+        #                        max_dist,
+        #                        phi,
+        #                        init_energy,
+        #                        mic_pos,
+        #                        mic_radius,
+        #                        scatter_coef,
+        #                        init_theta= theta,
+        #                        stop_condition=stop_condition,
+        #                        energy_thres=energy_thres,
+        #                        time_thres=time_thres,
+        #                        sound_speed=sound_speed,
+        #                        plot=plot_rays)
 
-            # Trace 1 ray
-            log = log+ simul_ray(room,
-                               max_dist,
-                               phi,
-                               init_energy,
-                               mic_pos,
-                               mic_radius,
-                               scatter_coef,
-                               init_theta= theta,
-                               stop_condition=stop_condition,
-                               energy_thres=energy_thres,
-                               time_thres=time_thres,
-                               sound_speed=sound_speed,
-                               plot=plot_rays)
+        log = log+ Parallel(n_jobs=2)(delayed(simul_ray)(room,
+                           max_dist,
+                           phi,
+                           init_energy,
+                           mic_pos,
+                           mic_radius,
+                           scatter_coef,
+                           init_theta= theta,
+                           stop_condition=stop_condition,
+                           energy_thres=energy_thres,
+                           time_thres=time_thres,
+                           sound_speed=sound_speed,
+                           plot=plot_rays) for theta in thetas)
 
+    # When using Parallel, we need to flatten the result
+    log = [item for sublist in log for item in sublist]
     print("\rDone.")
-    print("Running time for", nb_rays, "rays:", time.process_time() - start_time)
+    print("Running time for", nb_rays, "rays:", time.time() - start_time)
 
     print("log length =", len(log))
     if plot_rays:
@@ -1068,15 +1140,16 @@ def apply_rir(rir, wav_data, fs=16000, result_name="result.wav"):
 # ==================== ROOM SETUP ====================
 
 
-size_factor = 3.
+size_factor = 4.
 
-fs0, audio_anechoic = wavfile.read('samples/guitar_16k.wav')
+fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'cmu_arctic_us_axb_a0006.wav'))
 
-pol = size_factor * np.array([[0., 0.], [0., 1], [1., 1.], [1., 0]]).T
+pol = size_factor * np.array([[0., 0.], [0., 1.5], [1., 1.], [1., 0]]).T
 max_order = 1
 absor = 0.1
 
 _3D = True
+d= "3D" if _3D else "2D"
 
 if _3D:
 
@@ -1106,15 +1179,15 @@ else:
 
 # ==================== MAIN ====================
 
-nb_phis = 100
-nb_thetas = 25
-scatter_coef = 0.01
+nb_phis = 10
+nb_thetas = 150 if _3D else 1
+scatter_coef = 0.1
 init_energy = 1000
-ray_simul_time = 0.1
+ray_simul_time = 0.2
 
 rir = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir, audio_anechoic, result_name="result_"+str(nb_thetas*nb_phis)+".wav")
+apply_rir(rir, audio_anechoic, result_name=d+" result_"+str(nb_thetas*nb_phis)+"_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav")
 
 
 # center = [1,1,1]
