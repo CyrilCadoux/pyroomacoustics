@@ -701,25 +701,22 @@ def distance_attenuation(previous_energy, new_dist, total_dist):
     :param new_dist: the distance that the ray has to travel between the last hit point and its next hit point X
     :param total_dist: the total distance travelled by the ray from the beginning to its next hit_point X
     :return: the new energy of the ray
+
+
     """
 
-    # Produces long reverb
-    #return previous_energy - previous_energy*distance_to_travel*0.01
+    # When the ray travelled less than 1 meter or when the ray has not hit anything
+    if total_dist==new_dist:
+        return previous_energy
 
-    # If it is the first hop, total_dist- new_dist == 0
-    # if total_dist - new_dist == 0:
-    #     return previous_energy/(1+total_dist)
-    #
-    # return previous_energy * (total_dist-new_dist) / (total_dist)
+    return previous_energy * (total_dist-new_dist) / float(total_dist)
 
 
     # The ray losses ratio procent of energy per meter
 
-    #ratio = new_dist/total_dist if total_dist != new_dist else 0
-
     # Produces a nice reverb
-    ratio = new_dist/100.
-    return previous_energy*(1-ratio)
+    # ratio = new_dist/(100.*total_dist)
+    # return previous_energy*(1-0.001*new_dist)
 
 
 def wall_absorption(previous_energy, wall):
@@ -888,7 +885,7 @@ def simul_ray(room,
     travel_time = 0.
     total_dist = 0.
 
-    # To be filled with triples (Bool, time, energy) for the main ray and all scattered rays that will hit the receiver.
+    # To be filled with tuples (time, energy) for the main ray and all scattered rays that will hit the receiver.
     output = []
 
     if plot:
@@ -1011,35 +1008,35 @@ def get_rir_rt(room,
         if index % ((nb_phis // 100) + 1) == 0:
             print("\r", 100 * index // nb_phis, "%", end='', flush=True)
 
-        # for theta in thetas:
-        #
-        #     # Trace 1 ray
-        #     log = log+ simul_ray(room,
-        #                        max_dist,
-        #                        phi,
-        #                        init_energy,
-        #                        mic_pos,
-        #                        mic_radius,
-        #                        scatter_coef,
-        #                        init_theta= theta,
-        #                        time_thres=time_thres,
-        #                        sound_speed=sound_speed,
-        #                        plot=plot_rays)
+        for theta in thetas:
 
-        log = log + Parallel(n_jobs=2)(delayed(simul_ray)(room,
-                           max_dist,
-                           phi,
-                           init_energy,
-                           mic_pos,
-                           mic_radius,
-                           scatter_coef,
-                           init_theta= theta,
-                           time_thres=time_thres,
-                           sound_speed=sound_speed,
-                           plot=plot_rays) for theta in thetas)
+            # Trace 1 ray
+            log = log+ simul_ray(room,
+                               max_dist,
+                               phi,
+                               init_energy,
+                               mic_pos,
+                               mic_radius,
+                               scatter_coef,
+                               init_theta= theta,
+                               time_thres=time_thres,
+                               sound_speed=sound_speed,
+                               plot=plot_rays)
 
-    # When using Parallel, we need to flatten the result
-    log = [item for sublist in log for item in sublist]
+    #     log = log + Parallel(n_jobs=2)(delayed(simul_ray)(room,
+    #                        max_dist,
+    #                        phi,
+    #                        init_energy,
+    #                        mic_pos,
+    #                        mic_radius,
+    #                        scatter_coef,
+    #                        init_theta= theta,
+    #                        time_thres=time_thres,
+    #                        sound_speed=sound_speed,
+    #                        plot=plot_rays) for theta in thetas)
+    #
+    # # When using Parallel, we need to flatten the result
+    # log = [item for sublist in log for item in sublist]
     print("\rDone.")
     print("Running time for", nb_rays, "rays:", time.time() - start_time)
 
@@ -1094,20 +1091,21 @@ def apply_rir(rir, wav_data, fs=16000, result_name="result.wav"):
 
 # ==================== ROOM SETUP ====================
 
-_3D = False
+_3D = True
 
-nb_phis = 1000
-nb_thetas = 150 if _3D else 1
+nb_phis = 30
+nb_thetas = 30 if _3D else 1
 
-scatter_coef = 0.01
+scatter_coef = 0.005
 absor = 0.05
 init_energy = 1000
 ray_simul_time = 0.2
 
 size_factor = 4.
 
-fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'cmu_arctic_us_axb_a0006.wav'))
+fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
+audio_anechoic = audio_anechoic[:,0]
 pol = size_factor * np.array([[0., 0.], [0., 1.5], [1., 1.], [1., 0]]).T
 max_order = 1
 
@@ -1138,19 +1136,11 @@ else:
     room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
 
     # Add a source somewhere in the room
-    room.add_source([0.5, 0.2], signal=audio_anechoic)
+    room.add_source([2., 3.], signal=audio_anechoic)
 
 
 # ==================== MAIN ====================
 
 rir = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir, audio_anechoic, result_name=d+" result_"+str(nb_thetas*nb_phis)+"_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav")
-
-
-# center = [1,1,1]
-# radius = 0.7
-# start = [0.1,0,0]
-# end = [2,2,2]
-#
-# print(mic_intersection(start, end, center, radius))
+apply_rir(rir, audio_anechoic, fs = fs0, result_name=d+" result_"+str(nb_thetas*nb_phis)+"_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav")
