@@ -679,6 +679,7 @@ def mic_intersection(start, end, center, radius):
 
     raise ValueError("The function mic_intersection() only supports points of same dimension (2 or 3)")
 
+
 # ==================== TIME ENERGY FUNCTIONS ====================
 
 
@@ -981,13 +982,14 @@ def get_rir_rt(room,
 
     # To store info about rays that reach the mic
     log = []
-
-
     phis = np.linspace(1, 2 * PI, nb_phis)
     thetas = np.linspace(0, PI, nb_thetas)  # For 3D rooms
+    parallelize = False
 
     if room.dim == 2:
         thetas = [PI/2]
+    elif room.dim ==3 and not plot_rays:
+        parallelize = True
 
     nb_rays = nb_thetas*nb_phis
     max_dist = get_max_distance(room)
@@ -1008,10 +1010,15 @@ def get_rir_rt(room,
         if index % ((nb_phis // 100) + 1) == 0:
             print("\r", 100 * index // nb_phis, "%", end='', flush=True)
 
-        for theta in thetas:
 
-            # Trace 1 ray
-            log = log+ simul_ray(room,
+        # Use this block when you want to plot the rays
+        # ========================================================
+
+
+
+        # Use this block in 3D AND when you don't need to plot the rays (faster method)
+        if parallelize:
+            log = log + Parallel(n_jobs=2)(delayed(simul_ray)(room,
                                max_dist,
                                phi,
                                init_energy,
@@ -1021,22 +1028,29 @@ def get_rir_rt(room,
                                init_theta= theta,
                                time_thres=time_thres,
                                sound_speed=sound_speed,
-                               plot=plot_rays)
+                               plot=plot_rays) for theta in thetas)
 
-    #     log = log + Parallel(n_jobs=2)(delayed(simul_ray)(room,
-    #                        max_dist,
-    #                        phi,
-    #                        init_energy,
-    #                        mic_pos,
-    #                        mic_radius,
-    #                        scatter_coef,
-    #                        init_theta= theta,
-    #                        time_thres=time_thres,
-    #                        sound_speed=sound_speed,
-    #                        plot=plot_rays) for theta in thetas)
-    #
-    # # When using Parallel, we need to flatten the result
-    # log = [item for sublist in log for item in sublist]
+        else:
+            # Use this block in any other situation
+            for theta in thetas:
+                log = log + simul_ray(room,
+                                      max_dist,
+                                      phi,
+                                      init_energy,
+                                      mic_pos,
+                                      mic_radius,
+                                      scatter_coef,
+                                      init_theta=theta,
+                                      time_thres=time_thres,
+                                      sound_speed=sound_speed,
+                                      plot=plot_rays)
+
+    # When using Parallel, we need to flatten the result
+    if parallelize:
+        log = [item for sublist in log for item in sublist]
+    # ===========================================================
+
+
     print("\rDone.")
     print("Running time for", nb_rays, "rays:", time.time() - start_time)
 
@@ -1050,8 +1064,6 @@ def get_rir_rt(room,
     TIME = 0
     ENERGY = 1
 
-
-    # ===== METHOD THAT TAKES THE LOGARITHM OF THE VALUES =====
     ir = np.zeros(int(time_thres * room.fs) + 1)
 
     for elem in log:
@@ -1063,29 +1075,9 @@ def get_rir_rt(room,
         # We store the energy
         ir[time_ip] += elem[ENERGY]
 
-
+    # ===== METHOD THAT TAKES THE LOGARITHM OF THE VALUES =====
     for i in range(len(ir)):
-        ir[i] = np.round(ir[i]) if ir[i] < 1. else ir[i]
         ir[i] = math.log(ir[i]) if ir[i] > 1. else ir[i]
-
-
-    # ===== METHOD THAT THAT TAKES THE MAX OF THE VALUES =====
-    #
-    # ir = [[0]]*(int(time_thres * room.fs) + 1)
-    #
-    # for elem in log:
-    #     time_ip = int(np.floor(elem[TIME] * room.fs))
-    #
-    #     if time_ip > len(ir):
-    #         continue
-    #
-    #     # We store the energy
-    #     ir[time_ip] = ir[time_ip]+[elem[ENERGY]]
-    #
-    # for k in range(len(ir)):
-    #     ir[k] = max(ir[k])
-
-
 
     if plot_RIR:
         x = np.arange(len(ir)) / room.fs
@@ -1117,16 +1109,15 @@ def apply_rir(rir, wav_data, fs=16000, result_name="result.wav"):
 
 # ==================== ROOM SETUP ====================
 
-_3D = True
+_3D = False
 
-nb_phis = 30
-nb_thetas = 35 if _3D else 1
+nb_phis = 1000
+nb_thetas = 25 if _3D else 1
 
 scatter_coef = 0.1
-absor = 0.01
+absor = 0.1
 init_energy = 1000
-ray_simul_time = 0.4
-
+ray_simul_time = 3.
 
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
@@ -1134,9 +1125,7 @@ fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input
 size_factor = 16
 audio_anechoic = audio_anechoic[:,0]
 pol = size_factor * np.array([[0., 0.], [0., 1.5], [1., 1.], [1., 0]]).T
-max_order = 1
-
-
+max_order = 6
 
 d= "3D" if _3D else "2D"
 
@@ -1153,21 +1142,33 @@ if _3D:
     # Add a source somewhere in the room
     room.add_source([0.5, 0.2, 0.7], signal=audio_anechoic)
 
+    R = np.array([[0.7], [0.4], [0.8]])  # [[x], [y], [z]]
+    room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
+
 else:
 
     # Add the circular microphone
-    mic_pos = np.array([0.7, 0.4])
+    mic_pos = np.array([10.,10.])
     mic_radius = 0.05  # meters
 
     # Create the room from its corners
     room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
 
     # Add a source somewhere in the room
-    room.add_source([.5, .5], signal=audio_anechoic)
+    room.add_source([7, 2], signal=audio_anechoic)
+
+    R = np.array([[10.], [10.]])  # [[x], [y]]
+    room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
 
 
 # ==================== MAIN ====================
 
-rir = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir, audio_anechoic, fs = fs0, result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav")
+apply_rir(rir_rt, audio_anechoic, fs = fs0, result_name='aaa.wav')
+# result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
+
+# Image source method
+plt.figure()
+room.plot_rir()
+plt.show()
