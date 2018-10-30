@@ -702,7 +702,7 @@ def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.25)
     :param time_thresh: the maximum travel time for the ray
     :return:
     """
-    return actual_travel_time > time_thresh #or actual_energy < energy_thresh
+    return actual_travel_time > time_thresh or actual_energy < energy_thresh
 
 
 def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
@@ -1085,20 +1085,20 @@ def apply_rir(rir, wav_data, fs=16000, result_name="result.wav"):
 
 # ==================== ROOM SETUP ====================
 
-_3D = False
+_3D = True
 
-nb_phis = 1
+nb_phis = 25
 nb_thetas = 30 if _3D else 1
 
 scatter_coef = 0.1
 absor = 0.01
 init_energy = 1000
-ray_simul_time = 0.53
+ray_simul_time = 3.
 
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
-size_factor = 16.
+size_factor = 4.
 audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 pol = size_factor * np.array([[0., -1.], [0., 1.9], [1., 1.6], [1., 0], [0.5, -0.7]]).T
@@ -1140,7 +1140,7 @@ else:
 
 # ==================== MAIN ====================
 
-rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=True, plot_RIR=True)
+rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
 apply_rir(rir_rt, audio_anechoic, fs = fs0, result_name='aaa.wav')
 # result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
