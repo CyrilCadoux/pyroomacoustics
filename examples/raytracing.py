@@ -9,10 +9,9 @@ import pyroomacoustics as pra
 import math
 import scipy
 from scipy.io import wavfile
+from scipy import signal
 import os
 from joblib import Parallel, delayed
-
-from pyroomacoustics.utilities import fractional_delay
 
 
 PI = 3.141592653589793
@@ -421,79 +420,51 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
         :return: a new angle phi (rad) that gives its new 2D direction to the ray
         """
 
-        # The reference vector to compute the 2D angles
+        """
+        Preparation of the vectors that we need
+        """
         ref_vec = [1, 0]
-
-        # The incident vector
         incident = make_vector(start, hit_point)
 
-        # We get the quadrant of both vectors
-        qi = get_quadrant(incident)
+        # We get the quadrant of the normal vector
         qn = get_quadrant(wall_normal)
 
         '''
-        =================
-        Tricky part here :
-
-        There is the extreme case where the normal is purely vertical or horizontal.
-            (1) If the normal is vertical, the wall is horizontal and thus we return -alpha
-            (2) If the normal is horizontal, the wall is vertical and thus we return pi-alpha
-
-        Otherwise, here are the cases where we should work with the inverted version of the wall_normal,
-        since the given normal points to the 'wrong' side of the wall :
-            (1) the angle between the reverse incident ray and the normal should be less than pi/2
-
-        =================
+        Handle cases where the wall is horizontal or vertical
         '''
-
         # When normal is vertical, ie the wall is horizontal
         if dot([1, 0], wall_normal) == 0:
-            return - phi
+            return (-1)*phi
 
         # When normal is horizontal, ie the wall is vertical
         if dot([0, 1], wall_normal) == 0:
             return PI - phi
 
-        # We use this reverse version to see if the normal points 'inside' of 'outside' the room
+
+        '''
+        Revert the normal vector when it points outside the room
+        '''
         reversed_incident = reverse_vector(incident)
 
         if angle_between(reversed_incident, wall_normal) > PI / 2:
             wall_normal = reverse_vector(wall_normal)
             qn = get_quadrant(wall_normal)
 
-        # Here we must be careful since angle_between() only yields positive angles
+
+        '''
+        We can finally compute the new angle with respect to the reference vector.
+        The new vector is n_alpha (+/-) beta
+        But the function angle_between() only yiels positive values so we need to multiply those values
+        by -1 for walls with normal in quadrants 3 and 4
+        '''
         beta = angle_between(reversed_incident, wall_normal)
         n_alpha = angle_between(ref_vec, wall_normal)
+        x = angle_between(reversed_incident, ref_vec)
 
-        if qi == 1 and qn == 2:
-            result = n_alpha - beta
-        elif qi == 1 and qn == 3:
-            result = -n_alpha + beta
-        elif qi == 1 and qn == 4:
-            result = -n_alpha + beta
+        sign = -1 if qn==3 or qn==4 else 1
+        sign_beta = 1 if x < n_alpha else -1
 
-        elif qi == 2 and qn == 1:
-            result = n_alpha + beta
-        elif qi == 2 and qn == 3:
-            result = -n_alpha - beta
-        elif qi == 2 and qn == 4:
-            result = -n_alpha - beta
-
-        elif qi == 3 and qn == 1:
-            result = n_alpha + beta
-        elif qi == 3 and qn == 2:
-            result = n_alpha + beta
-        elif qi == 3 and qn == 4:
-            result = -n_alpha - beta
-
-        elif qi == 4 and qn == 1:
-            result = n_alpha - beta
-        elif qi == 4 and qn == 2:
-            result = n_alpha - beta
-        else:
-            result = -n_alpha + beta
-
-        return result
+        return sign*(n_alpha + sign_beta*beta)
 
     # 2D case
     if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 2:
@@ -724,14 +695,14 @@ def wall_absorption(previous_energy, wall):
     return previous_energy * math.sqrt(1 - wall.absorption)
 
 
-def stop_ray(actual_travel_time, time_thresh):
+def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.25):
     """
     Returns True if the ray must be stopped according to the 'which' condition
     :param actual_travel_time: total travel time of the ray from the source to the point of evaluation
     :param time_thresh: the maximum travel time for the ray
     :return:
     """
-    return actual_travel_time > time_thresh
+    return actual_travel_time > time_thresh #or actual_energy < energy_thresh
 
 
 def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
@@ -796,7 +767,7 @@ def scattering_ray(room,
         scat_energy = distance_attenuation(scat_energy, distance, total_dist)
         travel_time = update_travel_time(actual_travel_time, distance, sound_speed)
 
-        if not stop_ray(travel_time, time_thresh):
+        if not stop_ray(travel_time, time_thresh, scat_energy):
             if plot:
                 draw_segment(last_hit, hit_point, red=False)
 
@@ -841,6 +812,12 @@ def draw_segment(source, hit, red=True):
         raise ValueError("The function draw_segment only supports points of same dimension (2 or 3)")
 
 
+def highpass(audio, fs, cutoff=50, butter_order=5):
+    nyq = 0.5 * fs
+    fc_norm = cutoff / nyq
+    b, a = signal.butter(butter_order, fc_norm, btype="high", analog=False)
+    return signal.lfilter(b, a, audio)
+
 # ==================== SIMULATION ====================
 
 
@@ -878,9 +855,12 @@ def simul_ray(room,
     """
 
     start = room.sources[0].position
+
     phi = init_phi
     theta = init_theta
+
     energy = init_energy
+
     end = None
     wall = None
     travel_time = 0.
@@ -896,6 +876,7 @@ def simul_ray(room,
     while True:
 
         end = compute_segment_end(start, ray_segment_length, phi, theta=theta)
+
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
 
         # Case where the ray arrives at the receiver
@@ -906,7 +887,7 @@ def simul_ray(room,
             energy = distance_attenuation(energy, distance, total_dist)
             travel_time = update_travel_time(travel_time, distance, sound_speed)
 
-            if not stop_ray(travel_time, time_thres) :
+            if not stop_ray(travel_time, time_thres, energy) :
                 if plot:
                     draw_segment(start, hit_point)
                     draw_point(hit_point, markersize=3, color='purple')
@@ -922,7 +903,7 @@ def simul_ray(room,
         travel_time = update_travel_time(travel_time, distance, sound_speed)
 
         # No it cannot
-        if stop_ray(travel_time, time_thres):
+        if stop_ray(travel_time, time_thres, energy):
             if plot:
                 draw_point(start, marker='o', color='blue')
                 draw_point(hit_point, marker = 'x', color='blue')
@@ -980,16 +961,13 @@ def get_rir_rt(room,
     :return: The Room Impulse Response computed for the microphone
     """
 
-    # To store info about rays that reach the mic
-    log = []
+
     phis = np.linspace(1, 2 * PI, nb_phis)
     thetas = np.linspace(0, PI, nb_thetas)  # For 3D rooms
-    parallelize = False
+    parallelize = not plot_rays
 
     if room.dim == 2:
         thetas = [PI/2]
-    elif room.dim ==3 and not plot_rays:
-        parallelize = True
 
     nb_rays = nb_thetas*nb_phis
     max_dist = get_max_distance(room)
@@ -1001,37 +979,37 @@ def get_rir_rt(room,
     if scatter_coef > 0:
         str_scat = "(with scattering)"
 
+    # Compute all the possible pairs of theta and phi
+    # => Parallelize on all those pairs
+    angles = [(p,t) for p in phis for t in thetas]
+
     print("Set up done. Starting Ray Tracing", str_scat)
     start_time = time.time()
 
-    for index, phi in enumerate(phis):
+    # To store info about rays that reach the mic
+    log = []
 
-        # Print the status
-        if index % ((nb_phis // 100) + 1) == 0:
-            print("\r", 100 * index // nb_phis, "%", end='', flush=True)
+    if parallelize:
+        log = log + Parallel(n_jobs=2)(delayed(simul_ray)(room,
+                                                          max_dist,
+                                                          phi,
+                                                          init_energy,
+                                                          mic_pos,
+                                                          mic_radius,
+                                                          scatter_coef,
+                                                          init_theta=theta,
+                                                          time_thres=time_thres,
+                                                          sound_speed=sound_speed,
+                                                          plot=plot_rays) for (phi, theta) in angles)
 
+        log = [item for sublist in log for item in sublist]
 
-        # Use this block when you want to plot the rays
-        # ========================================================
+    else:
+        for index, phi in enumerate(phis):
 
+            if index % ((nb_phis // 100) + 1) == 0:
+                print("\r", 100 * index // nb_phis, "%", end='', flush=True)
 
-
-        # Use this block in 3D AND when you don't need to plot the rays (faster method)
-        if parallelize:
-            log = log + Parallel(n_jobs=2)(delayed(simul_ray)(room,
-                               max_dist,
-                               phi,
-                               init_energy,
-                               mic_pos,
-                               mic_radius,
-                               scatter_coef,
-                               init_theta= theta,
-                               time_thres=time_thres,
-                               sound_speed=sound_speed,
-                               plot=plot_rays) for theta in thetas)
-
-        else:
-            # Use this block in any other situation
             for theta in thetas:
                 log = log + simul_ray(room,
                                       max_dist,
@@ -1044,11 +1022,6 @@ def get_rir_rt(room,
                                       time_thres=time_thres,
                                       sound_speed=sound_speed,
                                       plot=plot_rays)
-
-    # When using Parallel, we need to flatten the result
-    if parallelize:
-        log = [item for sublist in log for item in sublist]
-    # ===========================================================
 
 
     print("\rDone.")
@@ -1102,6 +1075,9 @@ def apply_rir(rir, wav_data, fs=16000, result_name="result.wav"):
 
     # Compute the convolution and set all coefficients between -1 and 1 (range for float32 .wav files)
     result = scipy.signal.fftconvolve(rir, wav_data)
+
+    result = highpass(result, fs, cutoff=200)
+
     result /= np.abs(result).max()
     result -= np.mean(result)
     wavfile.write(result_name, rate=fs, data=result.astype('float32'))
@@ -1111,20 +1087,21 @@ def apply_rir(rir, wav_data, fs=16000, result_name="result.wav"):
 
 _3D = False
 
-nb_phis = 1000
-nb_thetas = 25 if _3D else 1
+nb_phis = 1
+nb_thetas = 30 if _3D else 1
 
 scatter_coef = 0.1
-absor = 0.1
+absor = 0.01
 init_energy = 1000
-ray_simul_time = 3.
+ray_simul_time = 0.53
 
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
-size_factor = 16
+size_factor = 16.
 audio_anechoic = audio_anechoic[:,0]
-pol = size_factor * np.array([[0., 0.], [0., 1.5], [1., 1.], [1., 0]]).T
+audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
+pol = size_factor * np.array([[0., -1.], [0., 1.9], [1., 1.6], [1., 0], [0.5, -0.7]]).T
 max_order = 6
 
 d= "3D" if _3D else "2D"
@@ -1148,27 +1125,27 @@ if _3D:
 else:
 
     # Add the circular microphone
-    mic_pos = np.array([10.,10.])
+    mic_pos = np.array([3,1])
     mic_radius = 0.05  # meters
 
     # Create the room from its corners
     room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
 
     # Add a source somewhere in the room
-    room.add_source([7, 2], signal=audio_anechoic)
+    room.add_source([1, 1], signal=audio_anechoic)
 
-    R = np.array([[10.], [10.]])  # [[x], [y]]
+    R = np.array([[2.5], [2.5]])  # [[x], [y]]
     room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
 
 
 # ==================== MAIN ====================
 
-rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=True, plot_RIR=True)
 
 apply_rir(rir_rt, audio_anechoic, fs = fs0, result_name='aaa.wav')
 # result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
 
 # Image source method
-plt.figure()
-room.plot_rir()
-plt.show()
+# plt.figure()
+# room.plot_rir()
+# plt.show()
