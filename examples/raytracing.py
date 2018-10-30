@@ -677,9 +677,13 @@ def distance_attenuation(previous_energy, new_dist, total_dist):
 
     """
 
-    # When the ray has not hit anything
-    if total_dist==new_dist:
+
+    if total_dist < 1.:
         return previous_energy
+
+    # When the ray still hasn't hit anything
+    if total_dist==new_dist:
+        return previous_energy / total_dist
 
     return previous_energy * (total_dist-new_dist) / float(total_dist)
 
@@ -702,7 +706,7 @@ def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.25)
     :param time_thresh: the maximum travel time for the ray
     :return:
     """
-    return actual_travel_time > time_thresh or actual_energy < energy_thresh
+    return actual_travel_time > time_thresh #or actual_energy < energy_thresh
 
 
 def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
@@ -1093,12 +1097,12 @@ nb_thetas = 30 if _3D else 1
 scatter_coef = 0.1
 absor = 0.01
 init_energy = 1000
-ray_simul_time = 3.
+ray_simul_time = 1.2
 
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
-size_factor = 4.
+size_factor = 10
 audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 pol = size_factor * np.array([[0., -1.], [0., 1.9], [1., 1.6], [1., 0], [0.5, -0.7]]).T
