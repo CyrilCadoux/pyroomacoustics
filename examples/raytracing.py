@@ -1043,7 +1043,7 @@ def get_rir_rt(room,
     TIME = 0
     ENERGY = 1
 
-    # ======= PART WITHOUT FRACTIONAL DELAY ========
+    # ======= PART WITH FRACTIONAL DELAY ========
     # fdl = pra.constants.get('frac_delay_length')
     # fdl2 = (fdl - 1) // 2  # Integer division
     #
