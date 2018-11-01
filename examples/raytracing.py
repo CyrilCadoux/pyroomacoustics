@@ -1040,6 +1040,7 @@ def get_rir_rt(room,
 
     # ===== PUT EVERYTHING TOGETHER TO COMPUTE RIR ======
 
+    print('AAA')
     TIME = 0
     ENERGY = 1
 
@@ -1052,7 +1053,7 @@ def get_rir_rt(room,
     for elem in log:
         time_ip = int(np.floor(elem[TIME]*room.fs))
 
-        if time_ip > len(ir)-fdl2:
+        if time_ip > len(ir)-fdl2 or time_ip < fdl2:
             continue
         time_fp = (elem[TIME]*room.fs) - time_ip
 
@@ -1111,16 +1112,17 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
 
 # ==================== ROOM SETUP ====================
 
-_3D = False
+_3D = True
 
-nb_phis = 4000
-nb_thetas = 25 if _3D else 1
+nb_phis = 4
+nb_thetas = 4 if _3D else 1
 
 scatter_coef = 0.1
 absor = 0.01
 init_energy = 1000
 ray_simul_time = 2.
 
+mic_radius = 0.05  # meters
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
@@ -1130,13 +1132,14 @@ audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 pol = size_factor * np.array([[0., 0.], [0., 1.], [1., 1.], [1., 0.]]).T
 max_order = 6
 
+
+
 d= "3D" if _3D else "2D"
 
 if _3D:
 
     # Add the circular microphone
     mic_pos = np.array([0.7, 0.4, 0.8])
-    mic_radius = 0.05  # meters
     source = [0.5, 0.2, 0.7]
 
     # Create the room from its corners
@@ -1153,7 +1156,7 @@ else:
 
     # Add the circular microphone
     mic_pos = np.array([2.,2.])
-    mic_radius = 0.05  # meters
+
     source = [1,1]
 
     # Create the room from its corners
@@ -1173,7 +1176,7 @@ if dist(mic_pos, source) <= mic_radius:
 
 rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir_rt, audio_anechoic, cutoff=50, fs = fs0, result_name='aaa.wav')
+apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
 # result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
 
 # Image source method
