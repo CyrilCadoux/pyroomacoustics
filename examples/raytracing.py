@@ -1040,39 +1040,42 @@ def get_rir_rt(room,
 
     # ===== PUT EVERYTHING TOGETHER TO COMPUTE RIR ======
 
-    print('AAA')
     TIME = 0
     ENERGY = 1
 
-    #======= PART WITH FRACTIONAL DELAY ========
-    fdl = pra.constants.get('frac_delay_length')
-    fdl2 = (fdl - 1) // 2  # Integer division
+    use_frac = True
 
-    ir = np.zeros(int(time_thres*room.fs) + fdl)
+    if use_frac:
 
-    for elem in log:
-        time_ip = int(np.floor(elem[TIME]*room.fs))
+        #======= PART WITH FRACTIONAL DELAY ========
+        fdl = pra.constants.get('frac_delay_length')
+        fdl2 = (fdl - 1) // 2  # Integer division
 
-        if time_ip > len(ir)-fdl2 or time_ip < fdl2:
-            continue
-        time_fp = (elem[TIME]*room.fs) - time_ip
+        ir = np.zeros(int(time_thres*room.fs) + fdl)
 
-        ir[time_ip - fdl2:time_ip + fdl2 + 1] += (elem[ENERGY] * fractional_delay(time_fp))
+        for elem in log:
+            time_ip = int(np.floor(elem[TIME]*room.fs))
+
+            if time_ip > len(ir)-fdl2 or time_ip < fdl2:
+                continue
+            time_fp = (elem[TIME]*room.fs) - time_ip
+
+            ir[time_ip - fdl2:time_ip + fdl2 + 1] += (elem[ENERGY] * fractional_delay(time_fp))
+
+    else:
+        # ======= PART WITHOUT FRACTIONAL DELAY ========
+
+        ir = np.zeros(int(time_thres * room.fs) + 1)
+        for elem in log:
+            time_ip = int(np.floor(elem[TIME] * room.fs))
+
+            if time_ip > len(ir):
+                continue
+
+            # We store the energy
+            ir[time_ip] += elem[ENERGY]
 
 
-    # ======= PART WITHOUT FRACTIONAL DELAY ========
-
-    # ir = np.zeros(int(time_thres * room.fs) + 1)
-    # for elem in log:
-    #     time_ip = int(np.floor(elem[TIME] * room.fs))
-    #
-    #     if time_ip > len(ir):
-    #         continue
-    #
-    #     # We store the energy
-    #     ir[time_ip] += elem[ENERGY]
-    #
-    #
     #Take the log of the values
     for i in range(len(ir)):
         ir[i] = math.log(ir[i]) if ir[i] > 1. else ir[i]
@@ -1082,7 +1085,7 @@ def get_rir_rt(room,
         x = np.arange(len(ir)) / room.fs
         plt.figure()
         plt.plot(x, ir)
-        plt.title("RIR with " + str(nb_rays) + " rays, scattering coef=" + str(scatter_coef))
+        plt.title("RIR of 64x4x3 m^3 room")
         plt.show()
 
     return ir
@@ -1114,8 +1117,8 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
 
 _3D = True
 
-nb_phis = 4
-nb_thetas = 4 if _3D else 1
+nb_phis = 20.
+nb_thetas = 20. if _3D else 1
 
 scatter_coef = 0.1
 absor = 0.01
@@ -1126,10 +1129,10 @@ mic_radius = 0.05  # meters
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
-size_factor = 3.
+size_factor = 16.
 audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
-pol = size_factor * np.array([[0., 0.], [0., 1.], [1., 1.], [1., 0.]]).T
+pol = size_factor * np.array([[0., 0.], [0., 0.25], [4., 0.25], [4., 0.]]).T
 max_order = 6
 
 
@@ -1139,8 +1142,8 @@ d= "3D" if _3D else "2D"
 if _3D:
 
     # Add the circular microphone
-    mic_pos = np.array([0.7, 0.4, 0.8])
-    source = [0.5, 0.2, 0.7]
+    mic_pos = np.array([32, 2, 0.8])
+    source = [29, 2, 0.7]
 
     # Create the room from its corners
     room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
@@ -1176,7 +1179,7 @@ if dist(mic_pos, source) <= mic_radius:
 
 rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
+apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
 # result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
 
 # Image source method
