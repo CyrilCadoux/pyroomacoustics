@@ -700,14 +700,14 @@ def wall_absorption(previous_energy, wall):
     return previous_energy * math.sqrt(1 - wall.absorption)
 
 
-def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.1):
+def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.01):
     """
     Returns True if the ray must be stopped according to the 'which' condition
     :param actual_travel_time: total travel time of the ray from the source to the point of evaluation
     :param time_thresh: the maximum travel time for the ray
     :return:
     """
-    return actual_travel_time > time_thresh #or actual_energy < energy_thresh
+    return actual_travel_time > time_thresh or actual_energy < energy_thresh
 
 
 def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
@@ -1111,12 +1111,12 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
 
 # ==================== ROOM SETUP ====================
 
-_3D = False
+_3D = True
 
-nb_phis = 4000
-nb_thetas = 25 if _3D else 1
+nb_phis = 18
+nb_thetas = 18 if _3D else 1
 
-scatter_coef = 0.
+scatter_coef = 0.1
 absor = 0.01
 init_energy = 1000
 ray_simul_time = 2.
@@ -1124,7 +1124,7 @@ ray_simul_time = 2.
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
-size_factor = 3.
+size_factor = 4.
 audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 pol = size_factor * np.array([[0., 0.], [0., 1.], [1., 1.], [1., 0.]]).T
@@ -1173,7 +1173,7 @@ if dist(mic_pos, source) <= mic_radius:
 
 rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
+apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
 # result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
 
 # Image source method
