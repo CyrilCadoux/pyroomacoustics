@@ -1153,7 +1153,7 @@ else:
 
     # Add the circular microphone
     mic_pos = np.array([2.,2.])
-    mic_radius = 0.4  # meters
+    mic_radius = 0.05  # meters
     source = [1,1]
 
     # Create the room from its corners
