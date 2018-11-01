@@ -1052,7 +1052,7 @@ def get_rir_rt(room,
     for elem in log:
         time_ip = int(np.floor(elem[TIME]*room.fs))
 
-        if time_ip > len(ir)-fdl2:
+        if time_ip > len(ir)-fdl2 or time_ip < fdl2:
             continue
         time_fp = (elem[TIME]*room.fs) - time_ip
 
