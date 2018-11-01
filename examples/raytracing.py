@@ -700,7 +700,7 @@ def wall_absorption(previous_energy, wall):
     return previous_energy * math.sqrt(1 - wall.absorption)
 
 
-def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.4):
+def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.1):
     """
     Returns True if the ray must be stopped according to the 'which' condition
     :param actual_travel_time: total travel time of the ray from the source to the point of evaluation
@@ -817,7 +817,7 @@ def draw_segment(source, hit, red=True):
         raise ValueError("The function draw_segment only supports points of same dimension (2 or 3)")
 
 
-def highpass(audio, fs, cutoff=100, butter_order=5):
+def highpass(audio, fs, cutoff=200, butter_order=5):
     nyq = 0.5 * fs
     fc_norm = cutoff / nyq
     b, a = signal.butter(butter_order, fc_norm, btype="high", analog=False)
@@ -1043,38 +1043,39 @@ def get_rir_rt(room,
     TIME = 0
     ENERGY = 1
 
-    # ======= PART WITH FRACTIONAL DELAY ========
-    # fdl = pra.constants.get('frac_delay_length')
-    # fdl2 = (fdl - 1) // 2  # Integer division
-    #
-    #
-    # ir = np.zeros(int(time_thres*room.fs) + fdl)
-    #
-    # for elem in log:
-    #     time_ip = int(np.floor(elem[TIME]*room.fs)) + fdl2
-    #
-    #     if time_ip > len(ir)-fdl2:
-    #         continue
-    #     time_fp = elem[TIME] - time_ip
-    #     ir[time_ip - fdl2:time_ip + fdl2 + 1] += elem[ENERGY] * fractional_delay(time_fp)
+    #======= PART WITH FRACTIONAL DELAY ========
+    fdl = pra.constants.get('frac_delay_length')
+    fdl2 = (fdl - 1) // 2  # Integer division
+
+    ir = np.zeros(int(time_thres*room.fs) + fdl)
+
+    for elem in log:
+        time_ip = int(np.floor(elem[TIME]*room.fs))
+
+        if time_ip > len(ir)-fdl2:
+            continue
+        time_fp = (elem[TIME]*room.fs) - time_ip
+
+        ir[time_ip - fdl2:time_ip + fdl2 + 1] += (elem[ENERGY] * fractional_delay(time_fp))
 
 
     # ======= PART WITHOUT FRACTIONAL DELAY ========
 
-    ir = np.zeros(int(time_thres * room.fs) + 1)
-    for elem in log:
-        time_ip = int(np.floor(elem[TIME] * room.fs))
-
-        if time_ip > len(ir):
-            continue
-
-        # We store the energy
-        ir[time_ip] += elem[ENERGY]
-
-
+    # ir = np.zeros(int(time_thres * room.fs) + 1)
+    # for elem in log:
+    #     time_ip = int(np.floor(elem[TIME] * room.fs))
+    #
+    #     if time_ip > len(ir):
+    #         continue
+    #
+    #     # We store the energy
+    #     ir[time_ip] += elem[ENERGY]
+    #
+    #
     #Take the log of the values
     for i in range(len(ir)):
         ir[i] = math.log(ir[i]) if ir[i] > 1. else ir[i]
+        ir[i] = -math.log(abs(ir[i])) if ir[i] < -1. else ir[i]
 
     if plot_RIR:
         x = np.arange(len(ir)) / room.fs
@@ -1086,14 +1087,13 @@ def get_rir_rt(room,
     return ir
 
 
-def apply_rir(rir, wav_data, fs=16000, cutoff=100, result_name="aaa.wav"):
+def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
     """
     This function applies a RIR to sound data coming from a .wav file
     The result is written in the current directory
     :param rir: the room impulse response
     :param wav_data: an array of data with wav format
     :param fs: the sampling frequency used to write the result in local directory
-    :param cutoff: the cutoff frequency of the high pass filter
     :param result_name: the name of the resulting .wav file
     :return: Nothing
     """
@@ -1101,7 +1101,8 @@ def apply_rir(rir, wav_data, fs=16000, cutoff=100, result_name="aaa.wav"):
     # Compute the convolution and set all coefficients between -1 and 1 (range for float32 .wav files)
     result = scipy.signal.fftconvolve(rir, wav_data)
 
-    result = highpass(result, fs, cutoff)
+    if cutoff > 0:
+        result = highpass(result, fs, cutoff)
 
     result /= np.abs(result).max()
     result -= np.mean(result)
@@ -1112,10 +1113,10 @@ def apply_rir(rir, wav_data, fs=16000, cutoff=100, result_name="aaa.wav"):
 
 _3D = False
 
-nb_phis = 1000
+nb_phis = 4000
 nb_thetas = 25 if _3D else 1
 
-scatter_coef = 0.1
+scatter_coef = 0.
 absor = 0.01
 init_energy = 1000
 ray_simul_time = 2.
@@ -1123,7 +1124,7 @@ ray_simul_time = 2.
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'moron_president.wav'))
 
-size_factor = 4.
+size_factor = 3.
 audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 pol = size_factor * np.array([[0., 0.], [0., 1.], [1., 1.], [1., 0.]]).T
@@ -1152,7 +1153,7 @@ else:
 
     # Add the circular microphone
     mic_pos = np.array([2.,2.])
-    mic_radius = 0.05  # meters
+    mic_radius = 0.4  # meters
     source = [1,1]
 
     # Create the room from its corners
@@ -1172,10 +1173,10 @@ if dist(mic_pos, source) <= mic_radius:
 
 rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir_rt, audio_anechoic, fs = fs0, cutoff=300, result_name='aaa.wav')
+apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
 # result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
 
 # Image source method
 # plt.figure()
 # room.plot_rir()
-# plt.show()c
+# plt.show()
