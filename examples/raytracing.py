@@ -700,14 +700,14 @@ def wall_absorption(previous_energy, wall):
     return previous_energy * math.sqrt(1 - wall.absorption)
 
 
-def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.1):
+def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=1.):
     """
     Returns True if the ray must be stopped according to the 'which' condition
     :param actual_travel_time: total travel time of the ray from the source to the point of evaluation
     :param time_thresh: the maximum travel time for the ray
     :return:
     """
-    return actual_travel_time > time_thresh #or actual_energy < energy_thresh
+    return actual_travel_time > time_thresh# or actual_energy < energy_thresh
 
 
 def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
@@ -905,6 +905,7 @@ def simul_ray(room,
         # Can the ray reach the next hit_point on 'wall' ?
         total_dist += distance
         energy = distance_attenuation(energy, distance, total_dist)
+
         travel_time = update_travel_time(travel_time, distance, sound_speed)
 
         # No it cannot
@@ -915,6 +916,7 @@ def simul_ray(room,
             break
 
         # Energy after wall hit
+
         energy = wall_absorption(energy, wall)
 
         # Let's apply the scattering coefficient
@@ -989,7 +991,8 @@ def get_rir_rt(room,
     # => Parallelize on all those pairs
     angles = [(p,t) for p in phis for t in thetas]
 
-    print("Set up done. Starting Ray Tracing", str_scat)
+    print("\nSet up done. Starting Ray Tracing", str_scat)
+    print("Nb phi =", nb_phis, " | Nb theta =", nb_thetas)
     start_time = time.time()
 
     # To store info about rays that reach the mic
@@ -1075,17 +1078,21 @@ def get_rir_rt(room,
             # We store the energy
             ir[time_ip] += elem[ENERGY]
 
-
     #Take the log of the values
     for i in range(len(ir)):
-        ir[i] = math.log(ir[i]) if ir[i] > 1. else ir[i]
-        ir[i] = -math.log(abs(ir[i])) if ir[i] < -1. else ir[i]
+
+        if ir[i] > 1. :
+            ir[i] = math.log(ir[i]+1)
+        if ir[i] < -1. :
+            ir[i] = -math.log(abs(ir[i])+1)
+
+
 
     if plot_RIR:
         x = np.arange(len(ir)) / room.fs
         plt.figure()
         plt.plot(x, ir)
-        plt.title("RIR of 64x4x3 m^3 room")
+        plt.title("RIR")
         plt.show()
 
     return ir
@@ -1121,7 +1128,7 @@ nb_phis = 20.
 nb_thetas = 20. if _3D else 1
 
 scatter_coef = 0.1
-absor = 0.01
+absor = 0.3
 init_energy = 1000
 ray_simul_time = 2.
 
@@ -1132,7 +1139,7 @@ fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input
 size_factor = 16.
 audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
-pol = size_factor * np.array([[0., 0.], [0., 0.25], [4., 0.25], [4., 0.]]).T
+pol = size_factor * np.array([[0., 0.], [0., 1.], [1., 1.], [1., 0.]]).T
 max_order = 6
 
 
@@ -1142,12 +1149,12 @@ d= "3D" if _3D else "2D"
 if _3D:
 
     # Add the circular microphone
-    mic_pos = np.array([32, 2, 0.8])
-    source = [29, 2, 0.7]
+    mic_pos = np.array([7, 8., 0.8])
+    source = [4, 1., 0.7]
 
     # Create the room from its corners
     room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
-    room.extrude(3.)
+    room.extrude(3., absorption=absor)
 
     # Add a source somewhere in the room
     room.add_source(source, signal=audio_anechoic)
@@ -1174,15 +1181,29 @@ else:
 
 # ==================== MAIN ====================
 
-if dist(mic_pos, source) <= mic_radius:
-    raise ValueError("The source is in the microphone !")
+# if dist(mic_pos, source) <= mic_radius:
+#     raise ValueError("The source is in the microphone !")
+#
+# rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+#
+# apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
 
-rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+# Here we are going to invesigate the running time for fixed absorption coefficient, and room size
 
-apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
-# result_name=d+"_"+str(nb_thetas*nb_phis)+"rays""_absor" + str(absor) +"_scat"+ str(scatter_coef)+".wav"
+ray_number = [10,20,30,40,50,60,70,80,90,100]
+ray_number = [2,4,8,10]
+T = [0.] * len(ray_number)
 
-# Image source method
-# plt.figure()
-# room.plot_rir()
-# plt.show()
+for k, elem in enumerate(ray_number):
+
+    start = time.time()
+    get_rir_rt(room, elem/2., ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=elem/2.,
+               plot_rays=False, plot_RIR=False)
+    T[k] = time.time()-start
+
+plt.figure()
+plt.plot(ray_number, T, 'ro-')
+plt.xlabel("Number of rays")
+plt.ylabel("Time [s]")
+plt.title("Evolution of running time in function of the number of rays")
+plt.show()
