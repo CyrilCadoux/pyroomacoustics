@@ -116,6 +116,7 @@ def substract(v1, v2):
 
     raise ValueError("Function substract(v1,v2) only supports vectors of same length (2 or 3).")
 
+
 def add(v1, v2):
     """
     Computes the addition of 2 vectors
@@ -131,6 +132,39 @@ def add(v1, v2):
         return v1[0]+v2[0], v1[1]+v2[1], v1[2]+v2[2]
 
     raise ValueError("Function add(v1,v2) only supports vectors of same length (2 or 3).")
+
+
+def get_phi_theta(v):
+
+    """
+    2D : returns the phi angle that describes the vector v in polar coordinates.
+    3D : returns the phi and theta angles that describe the vector v in sperical coordinates.
+    :param v: an array of length 2 or 3 defining the vector to be considered.
+    :return: an array  [phi, theta]
+
+                - phi is in [0, 2*pi] and describes the direction of the vector on the (x,y) plane
+                - theta is in [0, pi] and describes the elevation angle with respect to the z axis
+                   (when in 2D, theta is pi/2 by default).
+                   WARNING : when theta is 0 or PI, then the phi angle is not well defined and should not be used"""
+                   # There should be no problem since those angles are used only in the 'compute_segment_end' function
+                   # where everything is multiplied by sin(theta)=0 which 'kills' the term in function of phi.
+
+    nv = normalize(v)
+
+    if len(nv) == 2:
+        phi = math.acos(nv[0]) if nv[1] > 0 else (-1)*math.acos(nv[0])
+        return [phi, PI/2]
+
+    if len(nv) == 3:
+        theta = math.acos(nv[2])
+
+        if theta == PI or theta == 0.:
+            return [0., theta ] # WARNING : here nv is perpendicular to (x,y) plane
+                                # The phi angle is not defined !
+
+        phi = math.acos(nv[0]/math.sin(theta))
+        phi = phi if nv[1] > 0 else (-1)*phi
+        return [phi, theta]
 
 
 def make_vector(start_point, end_point):
@@ -298,6 +332,7 @@ def compute_segment_end(start, length, phi, theta=PI/2):
         return [start[0] + length*np.cos(phi), start[1] + length*np.sin(phi)]
 
     if len(start) == 3:
+        # Spherical coordinates
         return [start[0] + length*np.sin(theta)*np.cos(phi), start[1] + length*np.sin(theta)*np.sin(phi), start[2] + length*np.cos(theta)]
 
     raise ValueError("Function compute_segment_end() only supports points of dimension 2 or 3.")
@@ -409,83 +444,100 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
     :return: The output is different wether the room is 2D or 3D:
                 - 2D : a new angle [phi, PI/2] (rad) that gives its new 2D direction to the ray (theta does not matter)
                 - 3D : a tuple [phi, theta] that gives its new 3D direction to the ray
+                - WARNING : In 3D when theta==PI/2, the angle phi is not well defined ! It's value should then not be used.
     """
 
-    def compute_2D_phi(start, hit_point, wall_normal, phi):
-        """
-        Computes the new 2D angle knowing the previous 2D angle
-        :param start: an array of length 2 defining the point that originated the ray before the hit
-        :param hit_point: an array of length 2 defining the intersection point between the ray and the wall
-        :param wall_normal: an array of length 2 defining the wall normal
-        :param phi: the previous angle (rad) defining the direction of the ray with respect to the [1,0] vector
-        :return: a new angle phi (rad) that gives its new 2D direction to the ray
-        """
 
-        """
-        Preparation of the vectors that we need
-        """
-        ref_vec = [1, 0]
-        incident = make_vector(start, hit_point)
+    d = normalize(make_vector(start, hit_point))
+    reversed_incident = normalize(reverse_vector(d))
 
-        # We get the quadrant of the normal vector
-        qn = get_quadrant(wall_normal)
+    if angle_between(reversed_incident, wall_normal) > PI / 2:
+        wall_normal = reverse_vector(wall_normal)
 
-        '''
-        Handle cases where the wall is horizontal or vertical
-        '''
-        # When normal is vertical, ie the wall is horizontal
-        if dot([1, 0], wall_normal) == 0:
-            return (-1)*phi
+    n = normalize(wall_normal)
 
-        # When normal is horizontal, ie the wall is vertical
-        if dot([0, 1], wall_normal) == 0:
-            return PI - phi
+    # ref : https://math.stackexchange.com/questions/13261/how-to-get-a-reflection-vector
+    reflected = substract(d, scale(n,2*dot(d,n)))
+
+    return get_phi_theta(reflected)
 
 
-        '''
-        Revert the normal vector when it points outside the room
-        '''
-        reversed_incident = reverse_vector(incident)
 
-        if angle_between(reversed_incident, wall_normal) > PI / 2:
-            wall_normal = reverse_vector(wall_normal)
-            qn = get_quadrant(wall_normal)
-
-
-        '''
-        We can finally compute the new angle with respect to the reference vector.
-        The new vector is n_alpha (+/-) beta
-        But the function angle_between() only yiels positive values so we need to multiply those values
-        by -1 for walls with normal in quadrants 3 and 4
-        '''
-        beta = angle_between(reversed_incident, wall_normal)
-        n_alpha = angle_between(ref_vec, wall_normal)
-        x = angle_between(reversed_incident, ref_vec)
-
-        sign = -1 if qn==3 or qn==4 else 1
-        sign_beta = 1 if x < n_alpha else -1
-
-        return sign*(n_alpha + sign_beta*beta)
-
-    # 2D case
-    if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 2:
-        return compute_2D_phi(start, hit_point, wall_normal, phi), theta
-
-    # 3D case :
-    # Not difficult since the floor and the roof are parallele to the (x,y) plane
-    # Not difficult since the walls are always perpendicular to the (x,y) plane
-
-    if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 3:
-
-        # When the ray hits roof or floor, phi remains the same and new_theta = PI-theta
-        if abs(wall_normal[2]) == 1:
-            return phi, (PI-theta)
-
-        # When the ray hits a wall, phi is computed as in 2D case, and theta remains the same
-        # So we just compute phi with the [x,y] coordinate of each vector
-        return compute_2D_phi(start[:-1], hit_point[:-1], wall_normal[:-1], phi), theta
-
-    raise ValueError("The function compute_new_angle only supports vectors and points of same dimension (2 or 3)")
+    # def compute_2D_phi(start, hit_point, wall_normal, phi):
+    #     """
+    #     Computes the new 2D angle knowing the previous 2D angle
+    #     :param start: an array of length 2 defining the point that originated the ray before the hit
+    #     :param hit_point: an array of length 2 defining the intersection point between the ray and the wall
+    #     :param wall_normal: an array of length 2 defining the wall normal
+    #     :param phi: the previous angle (rad) defining the direction of the ray with respect to the [1,0] vector
+    #     :return: a new angle phi (rad) that gives its new 2D direction to the ray
+    #     """
+    #
+    #     """
+    #     Preparation of the vectors that we need
+    #     """
+    #     ref_vec = [1, 0]
+    #     incident = make_vector(start, hit_point)
+    #
+    #     # We get the quadrant of the normal vector
+    #     qn = get_quadrant(wall_normal)
+    #
+    #     '''
+    #     Handle cases where the wall is horizontal or vertical
+    #     '''
+    #     # When normal is vertical, ie the wall is horizontal
+    #     if dot([1, 0], wall_normal) == 0:
+    #         return (-1)*phi
+    #
+    #     # When normal is horizontal, ie the wall is vertical
+    #     if dot([0, 1], wall_normal) == 0:
+    #         return PI - phi
+    #
+    #
+    #     '''
+    #     Revert the normal vector when it points outside the room
+    #     '''
+    #     reversed_incident = reverse_vector(incident)
+    #
+    #     if angle_between(reversed_incident, wall_normal) > PI / 2:
+    #         wall_normal = reverse_vector(wall_normal)
+    #         qn = get_quadrant(wall_normal)
+    #
+    #
+    #     '''
+    #     We can finally compute the new angle with respect to the reference vector.
+    #     The new vector is n_alpha (+/-) beta
+    #     But the function angle_between() only yiels positive values so we need to multiply those values
+    #     by -1 for walls with normal in quadrants 3 and 4
+    #     '''
+    #     beta = angle_between(reversed_incident, wall_normal)
+    #     n_alpha = angle_between(ref_vec, wall_normal)
+    #     x = angle_between(reversed_incident, ref_vec)
+    #
+    #     sign = -1 if qn==3 or qn==4 else 1
+    #     sign_beta = 1 if x < n_alpha else -1
+    #
+    #     return sign*(n_alpha + sign_beta*beta)
+    #
+    # # 2D case
+    # if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 2:
+    #     return compute_2D_phi(start, hit_point, wall_normal, phi), theta
+    #
+    # # 3D case :
+    # # Not difficult since the floor and the roof are parallele to the (x,y) plane
+    # # Not difficult since the walls are always perpendicular to the (x,y) plane
+    #
+    # if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 3:
+    #
+    #     # When the ray hits roof or floor, phi remains the same and new_theta = PI-theta
+    #     if abs(wall_normal[2]) == 1:
+    #         return phi, (PI-theta)
+    #
+    #     # When the ray hits a wall, phi is computed as in 2D case, and theta remains the same
+    #     # So we just compute phi with the [x,y] coordinate of each vector
+    #     return compute_2D_phi(start[:-1], hit_point[:-1], wall_normal[:-1], phi), theta
+    #
+    # raise ValueError("The function compute_new_angle only supports vectors and points of same dimension (2 or 3)")
 
 # ==================== MICROPHONE FUNCTIONS ====================
 
@@ -1123,13 +1175,13 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
 
 _3D = True
 
-nb_phis = 10.
-nb_thetas = 10. if _3D else 1
+nb_phis = 1
+nb_thetas = 1 if _3D else 1
 
 scatter_coef = 0.1
 absor = 0.2
 init_energy = 1000
-ray_simul_time = 0.5
+ray_simul_time = 0.1
 
 mic_radius = 0.05  # meters
 
@@ -1181,10 +1233,9 @@ else:
 # ==================== MAIN ====================
 
 
-rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=True, plot_RIR=True)
 
 apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
-
 
 
 
