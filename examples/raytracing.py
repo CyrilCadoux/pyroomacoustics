@@ -684,14 +684,14 @@ def wall_absorption(previous_energy, wall):
     return previous_energy * math.sqrt(1 - wall.absorption)
 
 
-def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=1.):
+def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=0.1, sound_speed=340.):
     """
     Returns True if the ray must be stopped according to the 'which' condition
     :param actual_travel_time: total travel time of the ray from the source to the point of evaluation
     :param time_thresh: the maximum travel time for the ray
     :return:
     """
-    return actual_travel_time > time_thresh or actual_energy < energy_thresh
+    return actual_travel_time > time_thresh or actual_energy/(sound_speed*actual_travel_time) < energy_thresh
 
 
 def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
@@ -1079,13 +1079,6 @@ def get_rir_rt(room,
             # We apply the distance attenuation
             ir[time_ip] += entry[ENERGY] / (sound_speed*entry[TIME])
 
-    #Take the log of the values
-    # for i in range(len(ir)):
-    #
-    #     if ir[i] > 1. :
-    #         ir[i] = math.log(ir[i]+1)
-    #     if ir[i] < -1. :
-    #         ir[i] = -math.log(abs(ir[i])+1)
 
     if plot_RIR:
         x = np.arange(len(ir)) / room.fs
@@ -1124,8 +1117,8 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
 _3D = True
 max_order = 8
 
-nb_phis = 20
-nb_thetas = 20 if _3D else 1
+nb_phis = 10
+nb_thetas = 10 if _3D else 1
 
 scatter_coef = 0.1
 absor = 0.01
@@ -1140,7 +1133,9 @@ fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input
 #audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 
-pol = np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
+#pol = np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
+
+pol = np.array([[-17, 0.], [-17, 3.], [17, 3.], [17, 0.]]).T
 
 
 
@@ -1160,8 +1155,9 @@ if _3D:
     # Add a source somewhere in the room
     room.add_source(source, signal=audio_anechoic)
 
-    R = np.array([[3.5], [2.], [0.5]])  # [[x], [y], [z]]
-    room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
+    ## To perform ISM
+    # R = np.array([[3.5], [2.], [0.5]])  # [[x], [y], [z]]
+    # room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
 
 else:
 
@@ -1185,7 +1181,7 @@ else:
 
 rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
-apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
+apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
 
 
 
