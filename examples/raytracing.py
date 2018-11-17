@@ -482,84 +482,6 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
 
     return get_phi_theta(reflected)
 
-
-
-    # def compute_2D_phi(start, hit_point, wall_normal, phi):
-    #     """
-    #     Computes the new 2D angle knowing the previous 2D angle
-    #     :param start: an array of length 2 defining the point that originated the ray before the hit
-    #     :param hit_point: an array of length 2 defining the intersection point between the ray and the wall
-    #     :param wall_normal: an array of length 2 defining the wall normal
-    #     :param phi: the previous angle (rad) defining the direction of the ray with respect to the [1,0] vector
-    #     :return: a new angle phi (rad) that gives its new 2D direction to the ray
-    #     """
-    #
-    #     """
-    #     Preparation of the vectors that we need
-    #     """
-    #     ref_vec = [1, 0]
-    #     incident = make_vector(start, hit_point)
-    #
-    #     # We get the quadrant of the normal vector
-    #     qn = get_quadrant(wall_normal)
-    #
-    #     '''
-    #     Handle cases where the wall is horizontal or vertical
-    #     '''
-    #     # When normal is vertical, ie the wall is horizontal
-    #     if dot([1, 0], wall_normal) == 0:
-    #         return (-1)*phi
-    #
-    #     # When normal is horizontal, ie the wall is vertical
-    #     if dot([0, 1], wall_normal) == 0:
-    #         return PI - phi
-    #
-    #
-    #     '''
-    #     Revert the normal vector when it points outside the room
-    #     '''
-    #     reversed_incident = reverse_vector(incident)
-    #
-    #     if angle_between(reversed_incident, wall_normal) > PI / 2:
-    #         wall_normal = reverse_vector(wall_normal)
-    #         qn = get_quadrant(wall_normal)
-    #
-    #
-    #     '''
-    #     We can finally compute the new angle with respect to the reference vector.
-    #     The new vector is n_alpha (+/-) beta
-    #     But the function angle_between() only yiels positive values so we need to multiply those values
-    #     by -1 for walls with normal in quadrants 3 and 4
-    #     '''
-    #     beta = angle_between(reversed_incident, wall_normal)
-    #     n_alpha = angle_between(ref_vec, wall_normal)
-    #     x = angle_between(reversed_incident, ref_vec)
-    #
-    #     sign = -1 if qn==3 or qn==4 else 1
-    #     sign_beta = 1 if x < n_alpha else -1
-    #
-    #     return sign*(n_alpha + sign_beta*beta)
-    #
-    # # 2D case
-    # if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 2:
-    #     return compute_2D_phi(start, hit_point, wall_normal, phi), theta
-    #
-    # # 3D case :
-    # # Not difficult since the floor and the roof are parallele to the (x,y) plane
-    # # Not difficult since the walls are always perpendicular to the (x,y) plane
-    #
-    # if len(start) == len(hit_point) and len(start) == len(wall_normal) and len(start) == 3:
-    #
-    #     # When the ray hits roof or floor, phi remains the same and new_theta = PI-theta
-    #     if abs(wall_normal[2]) == 1:
-    #         return phi, (PI-theta)
-    #
-    #     # When the ray hits a wall, phi is computed as in 2D case, and theta remains the same
-    #     # So we just compute phi with the [x,y] coordinate of each vector
-    #     return compute_2D_phi(start[:-1], hit_point[:-1], wall_normal[:-1], phi), theta
-    #
-    # raise ValueError("The function compute_new_angle only supports vectors and points of same dimension (2 or 3)")
-
 # ==================== MICROPHONE FUNCTIONS ====================
 
 
@@ -774,7 +696,7 @@ def stop_ray(actual_travel_time, time_thresh, actual_energy, energy_thresh=1.):
     :param time_thresh: the maximum travel time for the ray
     :return:
     """
-    return actual_travel_time > time_thresh# or actual_energy < energy_thresh
+    return actual_travel_time > time_thresh or actual_energy < energy_thresh
 
 
 def compute_scat_energy(energy, scatter_coef, wall, start, hit_point, mic_pos):
@@ -1013,10 +935,10 @@ def simul_ray(room,
 def get_rir_rt(room,
                nb_phis,
                time_thres,
-               init_energy,
                mic_pos,
                mic_radius,
                scatter_coef,
+               init_energy = 1000,
                nb_thetas=1,
                sound_speed = 340.,
                plot_RIR=False,
@@ -1037,6 +959,8 @@ def get_rir_rt(room,
                 - IMPORTANT : if plot_rays=True then the function room.plot() must be called before simul_ray, and the function plt.plot() must be called after simul_ray
     :return: The Room Impulse Response computed for the microphone
     """
+
+    # ========== TRACE ALL THE RAYS ==========
 
     if dist(mic_pos, room.sources[0].position) <= mic_radius:
         raise ValueError("The source is in the microphone !")
@@ -1130,30 +1054,30 @@ def get_rir_rt(room,
         ir = np.zeros(int(time_thres*room.fs) + fdl)
 
 
-
-        for elem in log:
-            time_ip = int(np.floor(elem[TIME]*room.fs))
+        for entry in log:
+            time_ip = int(np.floor(entry[TIME]*room.fs))
 
             if time_ip > len(ir)-fdl2 or time_ip < fdl2:
                 continue
 
-            time_fp = (elem[TIME]*room.fs) - time_ip
+            time_fp = (entry[TIME]*room.fs) - time_ip
 
-            ir[time_ip - fdl2:time_ip + fdl2 + 1] += (elem[ENERGY] * fractional_delay(time_fp))/ (sound_speed*elem[TIME])
+            # We apply the distance attenuation here
+            ir[time_ip - fdl2:time_ip + fdl2 + 1] += (entry[ENERGY] * fractional_delay(time_fp)) / (sound_speed*entry[TIME])
 
 
     else:
         # ======= PART WITHOUT FRACTIONAL DELAY ========
 
         ir = np.zeros(int(time_thres * room.fs) + 1)
-        for elem in log:
-            time_ip = int(np.floor(elem[TIME] * room.fs))
+        for entry in log:
+            time_ip = int(np.floor(entry[TIME] * room.fs))
 
             if time_ip > len(ir):
                 continue
 
-            # We store the energy
-            ir[time_ip] += elem[ENERGY]
+            # We apply the distance attenuation
+            ir[time_ip] += entry[ENERGY] / (sound_speed*entry[TIME])
 
     #Take the log of the values
     # for i in range(len(ir)):
@@ -1162,8 +1086,6 @@ def get_rir_rt(room,
     #         ir[i] = math.log(ir[i]+1)
     #     if ir[i] < -1. :
     #         ir[i] = -math.log(abs(ir[i])+1)
-
-
 
     if plot_RIR:
         x = np.arange(len(ir)) / room.fs
@@ -1206,21 +1128,19 @@ nb_phis = 22
 nb_thetas = 22 if _3D else 1
 
 scatter_coef = 0.1
-absor = 0.2
-init_energy = 1000
+absor = 0.01
 ray_simul_time = 0.8
 
 mic_radius = 0.05  # meters
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'arctic_a0010.wav'))
 
-size_factor = 1.
 
 ## Decomment in case the audio file has several channels
 #audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 
-pol = size_factor * np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
+pol = np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
 
 
 
@@ -1263,7 +1183,7 @@ else:
 # ==================== MAIN ====================
 
 
-rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
 apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
 
