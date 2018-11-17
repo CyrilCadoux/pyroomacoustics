@@ -12,6 +12,7 @@ from scipy.io import wavfile
 from scipy import signal
 import os
 from joblib import Parallel, delayed
+import sys
 from pyroomacoustics.utilities import fractional_delay
 
 
@@ -134,39 +135,6 @@ def add(v1, v2):
     raise ValueError("Function add(v1,v2) only supports vectors of same length (2 or 3).")
 
 
-def get_phi_theta(v):
-
-    """
-    2D : returns the phi angle that describes the vector v in polar coordinates.
-    3D : returns the phi and theta angles that describe the vector v in sperical coordinates.
-    :param v: an array of length 2 or 3 defining the vector to be considered.
-    :return: an array  [phi, theta]
-
-                - phi is in [0, 2*pi] and describes the direction of the vector on the (x,y) plane
-                - theta is in [0, pi] and describes the elevation angle with respect to the z axis
-                   (when in 2D, theta is pi/2 by default).
-                   WARNING : when theta is 0 or PI, then the phi angle is not well defined and should not be used"""
-                   # There should be no problem since those angles are used only in the 'compute_segment_end' function
-                   # where everything is multiplied by sin(theta)=0 which 'kills' the term in function of phi.
-
-    nv = normalize(v)
-
-    if len(nv) == 2:
-        phi = math.acos(nv[0]) if nv[1] > 0 else (-1)*math.acos(nv[0])
-        return [phi, PI/2]
-
-    if len(nv) == 3:
-        theta = math.acos(nv[2])
-
-        if theta == PI or theta == 0.:
-            return [0., theta ] # WARNING : here nv is perpendicular to (x,y) plane
-                                # The phi angle is not defined !
-
-        phi = math.acos(nv[0]/math.sin(theta))
-        phi = phi if nv[1] > 0 else (-1)*phi
-        return [phi, theta]
-
-
 def make_vector(start_point, end_point):
     """
     Computes the vector going from the starting point to the end point
@@ -279,6 +247,43 @@ def cross_product(u, v):
     return u[1]*v[2]-v[1]*u[2], v[0]*u[2] - u[0]*v[2], u[0]*v[1]-v[0]*u[1]
 
 
+def get_phi_theta(v):
+
+    """
+    2D : returns the phi angle that describes the vector v in polar coordinates.
+    3D : returns the phi and theta angles that describe the vector v in sperical coordinates.
+    :param v: an array of length 2 or 3 defining the vector to be considered.
+    :return: an array  [phi, theta]
+
+                - phi is in [0, 2*pi] and describes the direction of the vector on the (x,y) plane
+                - theta is in [0, pi] and describes the elevation angle with respect to the z axis
+                   (when in 2D, theta is pi/2 by default).
+                   WARNING : when theta is 0 or PI, then the phi angle is not well defined and should not be used"""
+                   # There should be no problem since those angles are used only in the 'compute_segment_end' function
+                   # where everything is multiplied by sin(theta)=0 which 'kills' the term in function of phi.
+
+    # It is essential to normalize the vector
+    nv = normalize(v)
+
+    if len(nv) == 2:
+
+        phi = math.acos(nv[0]) if nv[1] > 0 else (-1)*math.acos(nv[0])
+        return [phi, PI/2]
+
+    if len(nv) == 3:
+
+        theta = math.acos(nv[2])
+
+        if theta == PI or theta == 0.:
+            return [0., theta ] # WARNING : here nv is perpendicular to (x,y) plane
+                                # The phi angle is not defined !
+
+        val = clip(nv[0]/math.sin(theta), -1., 1.)
+        phi = math.acos(val) if nv[1] > 0 else (-1)*math.acos(val)
+
+        return [phi, theta]
+
+
 
 # ==================== ALGO FUNCTIONS ====================
 
@@ -352,17 +357,18 @@ def same_wall(w1, w2):
     c1 = w1.corners
     c2 = w2.corners
 
-    # 2D
-    if len(c1) == 2:
-        return c1[0][0] == c2[0][0] and c1[1][0] == c2[1][0] and c1[0][1] == c2[0][1] and c1[1][1] == c2[1][1]
+    if len(c1) != len(c2) or len(c1[0]) != len(c2[0]):
+        return False
 
 
-    # 3D
-    x_ok = c1[0][0] == c2[0][0] and c1[0][1] == c2[0][1] and c1[0][2] == c2[0][2] and c1[0][3] == c2[0][3]
-    y_ok = c1[1][0] == c2[1][0] and c1[1][1] == c2[1][1] and c1[1][2] == c2[1][2] and c1[1][3] == c2[1][3]
-    z_ok = c1[2][0] == c2[2][0] and c1[2][1] == c2[2][1] and c1[2][2] == c2[2][2] and c1[2][3] == c2[2][3]
+    for k in range(len(c1)):
+        for l in range(len(c1[0])):
 
-    return x_ok and y_ok and z_ok
+            if c1[k][l] != c2[k][l]:
+                return False
+
+
+    return True
 
 
 def get_intersected_walls(start, end, room, previous_wall):
@@ -380,12 +386,20 @@ def get_intersected_walls(start, end, room, previous_wall):
 
     intersected_walls = []
 
+
     # We collect the walls that are intersected and that are not the previous wall
     for w in room.walls:
 
         # Boolean conditions
         different_than_previous = previous_wall is not None   and   not same_wall(previous_wall, w)
         w_intersects_segment = w.intersects(start, end)[0]
+
+        # if (w_intersects_segment):
+        #     print()
+        #     print("prev :", previous_wall)
+        #     print("wall candidate :", w)
+        #     sys.stdout.flush()
+
         # Candidate walls for first hit
         if w_intersects_segment and (previous_wall is None or different_than_previous):
             intersected_walls = intersected_walls + [w]
@@ -404,16 +418,23 @@ def next_wall_hit(start, end, room, previous_wall):
     :param room: the room in which the ray propagates
     :param previous_wall : a wall object representing the last wall that the ray has hit.
                             It is None before the first hit.
-    :return: an array with two elements
+    :return: an array with three elements
                 - a 2 dim array representing the place where the ray hits the next wall
+                - the distance between start and the hit point
                 - the wall that is going to be hit
+                NOTE : Those 3 elements will be None in case no wall intersection has been found
+                (in case of rounding errors when hit points are close to a 3D corner)
     """
 
     intersected_w = get_intersected_walls(start, end, room, previous_wall)
 
-    # If no wall has been intersected
+    # If no wall has been intersected, there might be a rounding error
+    # WARNING : in this case just stop tracing the ray
     if len(intersected_w) == 0:
-        raise ValueError("No wall has been intersected")
+        print("\nNote : One ray did not intersect any wall (rounding error).")
+        sys.stdout.flush()
+        return [None, None, None]
+
 
     # If only 1 wall is intersected
     if len(intersected_w) == 1:
@@ -815,7 +836,7 @@ def scattering_ray(room,
 
         hit_point, distance = mic_intersection(last_hit, mic_pos, mic_pos, mic_radius)
         total_dist += distance
-        scat_energy = distance_attenuation(scat_energy, distance, total_dist)
+        #scat_energy = distance_attenuation(scat_energy, distance, total_dist)
         travel_time = update_travel_time(actual_travel_time, distance, sound_speed)
 
         if not stop_ray(travel_time, time_thresh, scat_energy):
@@ -908,7 +929,8 @@ def simul_ray(room,
     start = room.sources[0].position
 
     phi = init_phi
-    theta = init_theta
+    theta = PI/3
+
 
     energy = init_energy
 
@@ -929,6 +951,10 @@ def simul_ray(room,
         end = compute_segment_end(start, ray_segment_length, phi, theta=theta)
 
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
+
+        # If no hit point is found (in rare cases of rounding errors), then stop tracing the ray
+        if hit_point is None :
+            break
 
         # Case where the ray arrives at the receiver
         if intersects_mic(start, hit_point, mic_pos, mic_radius):
@@ -981,7 +1007,6 @@ def simul_ray(room,
 
         phi,theta = compute_new_angle(start, hit_point, wall.normal, phi, theta=theta)
         start = hit_point.copy()
-
     return output
 
 
@@ -1025,6 +1050,7 @@ def get_rir_rt(room,
 
     nb_rays = nb_thetas*nb_phis
     max_dist = get_max_distance(room)
+
 
     if plot_rays:
         room.plot(img_order=1)
@@ -1174,24 +1200,28 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
 # ==================== ROOM SETUP ====================
 
 _3D = True
+max_order = 8
 
-nb_phis = 1
-nb_thetas = 1 if _3D else 1
+nb_phis = 22
+nb_thetas = 22 if _3D else 1
 
 scatter_coef = 0.1
 absor = 0.2
 init_energy = 1000
-ray_simul_time = 0.1
+ray_simul_time = 0.8
 
 mic_radius = 0.05  # meters
 
 fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input_samples", 'arctic_a0010.wav'))
 
 size_factor = 1.
+
+## Decomment in case the audio file has several channels
 #audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
+
 pol = size_factor * np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
-max_order = 8
+
 
 
 
@@ -1233,7 +1263,7 @@ else:
 # ==================== MAIN ====================
 
 
-rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=True, plot_RIR=True)
+rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, init_energy, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
 
 apply_rir(rir_rt, audio_anechoic, cutoff=200., fs = fs0, result_name='aaa.wav')
 
