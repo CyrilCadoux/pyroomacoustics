@@ -1112,6 +1112,38 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
     wavfile.write(result_name, rate=fs, data=result.astype('float32'))
 
 
+def wall_area(wall):
+
+    """Computes the area of a 3D planar wall.
+    :param wall: the wall object that is defined in the 3D space"""
+
+    # Algo : http://geomalgorithms.com/a01-_area.
+
+    # Recall that the wall corners have the following shape :
+    # [  [x1, x2, ...], [y1, y2, ...], [z1, z2, ...]  ]
+
+    c = wall.corners
+    n = normalize(wall.normal)
+
+
+    if len(c) != 3 :
+        raise ValueError("The function wall_area3D only supports ")
+
+
+    area = 0.
+    num_vertices = len(c[0])
+    prev = num_vertices - 1
+
+    for i in range(num_vertices):
+
+        area += dot(n,cross_product(c[:,prev], c[:,i]))
+        prev = i
+
+    return abs(area)/2.
+
+
+
+
 # ==================== ROOM SETUP ====================
 
 _3D = True
@@ -1133,9 +1165,11 @@ fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input
 #audio_anechoic = audio_anechoic[:,0]
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 
-#pol = np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
+# Lshape room
+pol = np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
 
-pol = np.array([[-17, 0.], [-17, 3.], [17, 3.], [17, 0.]]).T
+# Very long room
+#pol = np.array([[-17, 0.], [-17, 3.], [17, 3.], [17, 0.]]).T
 
 
 
@@ -1179,11 +1213,13 @@ else:
 # ==================== MAIN ====================
 
 
-rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+# rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=True, plot_RIR=True)
+#
+# apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
 
-apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
 
-
+for w in room.walls :
+    print("Area :", wall_area(w))
 
 ## === COMPUTING THE RUNNING TIME
 # ray_number = np.array([10,20,30,40,50,60,70,80,90,100])
