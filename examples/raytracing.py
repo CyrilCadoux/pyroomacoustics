@@ -431,7 +431,7 @@ def next_wall_hit(start, end, room, previous_wall):
     # If no wall has been intersected, there might be a rounding error
     # WARNING : in this case just stop tracing the ray
     if len(intersected_w) == 0:
-        print("\nNote : One ray did not intersect any wall (rounding error).")
+        print("Note : One ray did not intersect any wall (rounding error).")
         sys.stdout.flush()
         return [None, None, None]
 
@@ -450,22 +450,16 @@ def next_wall_hit(start, end, room, previous_wall):
     return intersections[correct_wall], dist_from_start[correct_wall], intersected_w[correct_wall]
 
 
-def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
+def compute_new_end(start, hit_point, wall_normal, segment_length):
     """
-    Computes the new directional angle of the ray when the latter hits a wall
+    This function computes the reflection of the ray on the wall and outputs the end point of this segment,
+    located at a distance 'segment_length' of the hit_point
     :param start: an array of length 2 or 3 representing the point that originated the ray before the hit.
                 This point is either the previous hit point, or the source of the sound (for the first iteration).
     :param hit_point: an array of length 2 or 3 representing the intersection between the ray and the wall
     :param wall_normal: an array of length 2 or 3 representing the normal vector of the wall
-    :param phi: the angle (rad) defining the direction of the segment
-                in the (x,y) plane with respect to the reference vector [x=1, y=0]
-    :param theta: the angle (rad) defining the elevation of the segment in the 3rd dimension
-                when theta belongs to [0 ; pi/2] the segment goes upward
-                when theta belongs to [pi/2 ; pi] the segment goes downward
-    :return: The output is different wether the room is 2D or 3D:
-                - 2D : a new angle [phi, PI/2] (rad) that gives its new 2D direction to the ray (theta does not matter)
-                - 3D : a tuple [phi, theta] that gives its new 3D direction to the ray
-                - WARNING : In 3D when theta==PI/2, the angle phi is not well defined ! It's value should then not be used.
+    :param segment_length: a double representing a distance that cannot be travelled inside the room without hurting a wall
+    :return: an array of length 2 or 3 representing the end point of the segment representing the reflection of the ray on a wall
     """
 
 
@@ -478,9 +472,10 @@ def compute_new_angle(start, hit_point, wall_normal, phi, theta=PI/2):
     n = normalize(wall_normal)
 
     # ref : https://math.stackexchange.com/questions/13261/how-to-get-a-reflection-vector
-    reflected = substract(d, scale(n,2*dot(d,n)))
+    reflected = normalize(substract(d, scale(n,2*dot(d,n))))
+    reflected = scale(reflected, segment_length)
 
-    return get_phi_theta(reflected)
+    return add(hit_point, reflected)
 
 # ==================== MICROPHONE FUNCTIONS ====================
 
@@ -848,15 +843,18 @@ def simul_ray(room,
                 - remaining_energy is the amount of energy that the ray has left when it hits the microphone
     """
 
-    start = room.sources[0].position
+
 
     phi = init_phi
-    theta = PI/3
+    theta = init_theta
+
+    # First segment
+    start = room.sources[0].position
+    end = compute_segment_end(start, ray_segment_length, phi, theta=theta)
 
 
     energy = init_energy
 
-    end = None
     wall = None
     travel_time = 0.
     total_dist = 0.
@@ -870,15 +868,14 @@ def simul_ray(room,
 
     while True:
 
-        end = compute_segment_end(start, ray_segment_length, phi, theta=theta)
-
         hit_point, distance, wall = next_wall_hit(start, end, room, wall)
 
         # If no hit point is found (in rare cases of rounding errors), then stop tracing the ray
         if hit_point is None :
             break
 
-        # Case where the ray arrives at the receiver
+
+        # If the ray hits the microphone
         if intersects_mic(start, hit_point, mic_pos, mic_radius):
 
             hit_point, distance = mic_intersection(start, hit_point, mic_pos, mic_radius)
@@ -896,13 +893,14 @@ def simul_ray(room,
 
             break
 
-        # Can the ray reach the next hit_point on 'wall' ?
+
+        # Update the ray's variable
         total_dist += distance
         #energy = distance_attenuation(energy, distance, total_dist)
 
         travel_time = update_travel_time(travel_time, distance, sound_speed)
 
-        # No it cannot
+        # If the ray cannot reach the next hit_point on 'wall'
         if stop_ray(travel_time, time_thres, energy):
             if plot:
                 draw_point(start, marker='o', color='blue')
@@ -927,8 +925,10 @@ def simul_ray(room,
 
         # ==== Update for next rebound ====
 
-        phi,theta = compute_new_angle(start, hit_point, wall.normal, phi, theta=theta)
+        end = compute_new_end(start, hit_point, wall.normal, ray_segment_length)
         start = hit_point.copy()
+
+
     return output
 
 
@@ -1124,8 +1124,8 @@ def apply_rir(rir, wav_data, cutoff, fs=16000, result_name="result.wav"):
 _3D = True
 max_order = 8
 
-nb_phis = 22
-nb_thetas = 22 if _3D else 1
+nb_phis = 20
+nb_thetas = 20 if _3D else 1
 
 scatter_coef = 0.1
 absor = 0.01
