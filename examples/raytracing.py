@@ -1130,19 +1130,55 @@ def wall_area(wall):
         raise ValueError("The function wall_area3D only supports ")
 
 
-    area = 0.
+    sum_vect = [0.,0.,0.]
     num_vertices = len(c[0])
-    prev = num_vertices - 1
 
     for i in range(num_vertices):
+        sum_vect = add(sum_vect, cross_product(c[:,(i-1)%num_vertices], c[:,i]))
 
-        area += dot(n,cross_product(c[:,prev], c[:,i]))
-        prev = i
-
-    return abs(area)/2.
+    return abs(dot(n,sum_vect))/2.
 
 
+def get_volume(room):
 
+    """
+    Computes the volume of a room
+    :param room: the room object
+    :return: the volume in cubic unit
+    """
+
+    wall_sum = 0.
+
+    for w in room.walls :
+
+        n = normalize(w.normal)
+        one_point = w.corners[:,0]
+
+        wall_sum += dot(n, one_point) * wall_area(w)
+
+    return wall_sum / 3.
+
+
+def get_total_abs(room):
+    """
+    Computes the total absorption of a room in Sabins.
+    This value is defined as the sum{absorption*area} over all the walls
+    Here the units for the walls dimensions are meters
+    :param room: the room that is considered
+    :return: the total absorption of the wall in sabins
+    """
+
+    return sum([w.absorption*wall_area(w) for w in room.walls])
+
+def get_RT60(room):
+    """
+    Computes the RT60 reverberation time for a room with Sabine's formula
+    Warning : the unit for the room dimensions must be meters
+    :param room: The considered room
+    :return: the RT60 reverberation time approximation derived with Sabine's formula
+    """
+
+    return 0.161*get_volume(room)/get_total_abs(room)
 
 # ==================== ROOM SETUP ====================
 
@@ -1153,7 +1189,7 @@ nb_phis = 10
 nb_thetas = 10 if _3D else 1
 
 scatter_coef = 0.1
-absor = 0.01
+absor = 0.3
 ray_simul_time = 0.8
 
 mic_radius = 0.05  # meters
@@ -1169,7 +1205,7 @@ audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 pol = np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
 
 # Very long room
-#pol = np.array([[-17, 0.], [-17, 3.], [17, 3.], [17, 0.]]).T
+#pol = np.array([[0., 0.], [0., 20.], [10., 20.], [10., 0.]]).T
 
 
 
@@ -1220,6 +1256,11 @@ else:
 
 for w in room.walls :
     print("Area :", wall_area(w))
+
+print ("Volume :", get_volume(room))
+
+print("Total abs :", get_total_abs(room))
+print("RT60 : %.3f" % get_RT60(room))
 
 ## === COMPUTING THE RUNNING TIME
 # ray_number = np.array([10,20,30,40,50,60,70,80,90,100])
