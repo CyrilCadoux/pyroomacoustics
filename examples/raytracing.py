@@ -1189,7 +1189,7 @@ nb_phis = 10
 nb_thetas = 10 if _3D else 1
 
 scatter_coef = 0.1
-absor = 0.3
+absor = 0.1
 ray_simul_time = 0.8
 
 mic_radius = 0.05  # meters
@@ -1202,7 +1202,7 @@ fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 
 # Lshape room
-pol = np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
+pol = 8*np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
 
 # Very long room
 #pol = np.array([[0., 0.], [0., 20.], [10., 20.], [10., 0.]]).T
@@ -1249,9 +1249,9 @@ else:
 # ==================== MAIN ====================
 
 
-# rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=True, plot_RIR=True)
-#
-# apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
+rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, mic_pos, mic_radius, scatter_coef, nb_thetas=nb_thetas, plot_rays=False, plot_RIR=True)
+
+apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
 
 
 for w in room.walls :
