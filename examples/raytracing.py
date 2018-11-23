@@ -221,7 +221,7 @@ def get_quadrant(vec):
 
 def angle_between(v1, v2):
     """
-    Returns the angle in radians between two 2D vectors 'v1' and 'v2'
+    Returns the angle in radians between two vectors 'v1' and 'v2'
 
     :param v1: an N dim array representing the first vector
     :param v2: an N dim array representing the first vector
@@ -1189,7 +1189,7 @@ nb_phis = 10
 nb_thetas = 10 if _3D else 1
 
 scatter_coef = 0.1
-absor = 0.1
+absor = 0.01
 ray_simul_time = 0.8
 
 mic_radius = 0.05  # meters
@@ -1202,10 +1202,10 @@ fs0, audio_anechoic = wavfile.read(os.path.join(os.path.dirname(__file__),"input
 audio_anechoic = audio_anechoic-np.mean(audio_anechoic)
 
 # Lshape room
-pol = 8*np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
+#pol = 8*np.array([[0., 0.], [0., 3.], [5., 3.], [5., 1.], [3.,1.], [3.,0.]]).T
 
 # Very long room
-#pol = np.array([[0., 0.], [0., 20.], [10., 20.], [10., 0.]]).T
+pol = np.array([[0., 0.], [0., 3.], [3., 3.], [3., 0.]]).T
 
 
 
@@ -1215,12 +1215,12 @@ d= "3D" if _3D else "2D"
 if _3D:
 
     # Add the circular microphone
-    mic_pos = np.array([3.5, 2., 0.5])
+    mic_pos = np.array([2.5, 2.5, 0.5])
     source = [1., 1., 0.5]
 
     # Create the room from its corners
     room = pra.Room.from_corners(pol,fs=16000, max_order=max_order, absorption=absor)
-    room.extrude(2., absorption=absor)
+    room.extrude(3., absorption=absor)
 
     # Add a source somewhere in the room
     room.add_source(source, signal=audio_anechoic)
@@ -1253,14 +1253,16 @@ rir_rt = get_rir_rt(room, nb_phis, ray_simul_time, mic_pos, mic_radius, scatter_
 
 apply_rir(rir_rt, audio_anechoic, cutoff=0., fs = fs0, result_name='aaa.wav')
 
+# print(angle_between([0,5,6], [7,8,9]))
 
-for w in room.walls :
-    print("Area :", wall_area(w))
 
-print ("Volume :", get_volume(room))
-
-print("Total abs :", get_total_abs(room))
-print("RT60 : %.3f" % get_RT60(room))
+# for w in room.walls :
+#     print("Area :", wall_area(w))
+#
+# print ("Volume :", get_volume(room))
+#
+# print("Total abs :", get_total_abs(room))
+# print("RT60 : %.3f" % get_RT60(room))
 
 ## === COMPUTING THE RUNNING TIME
 # ray_number = np.array([10,20,30,40,50,60,70,80,90,100])
